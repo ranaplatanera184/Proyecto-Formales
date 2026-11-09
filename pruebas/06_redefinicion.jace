@@ -1,0 +1,4 @@
+# Inválido: la señal x se define dos veces
+ENTRADA[a, b]
+AND[a, b] -> x
+OR[a, b] -> x

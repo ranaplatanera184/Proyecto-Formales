@@ -1,0 +1,6 @@
+# Circuito válido con XOR, AND, OR y NAND; dos salidas independientes
+ENTRADA[a, b, c]
+AND[a, b] -> t1
+OR[t1, c] -> t2
+NAND[t2, c] -> sal1
+XOR[a, b] -> sal2

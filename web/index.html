@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JACE - Compilador de Circuitos Lógicos</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="barra">
+    <div class="marca">
+      <span class="logo">JACE</span>
+      <span class="sub">Compilador de circuitos lógicos</span>
+    </div>
+
+    <nav>
+      <a href="#/" data-vista="analisis">Analizar</a>
+      <a href="#/historial" data-vista="historial">Historial</a>
+      <a href="#/background" data-vista="background">Background</a>
+    </nav>
+
+    <div class="estado">
+      <span class="muestra" id="muestraFondo" title="Fondo actual"></span>
+      <input type="color" id="colorRapido" value="#ffffff" title="Cambiar el fondo">
+      <span id="textoFondo" class="mono">#FFFFFF</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============================ RUTA #/ : ANALIZAR ==================== -->
+    <section id="vista-analisis" class="vista">
+      <!-- Columna izquierda: editor -->
+      <div class="col-izquierda">
+        <div class="panel editor">
+          <h2>Circuito (.jace)</h2>
+          <textarea id="codigo" spellcheck="false" placeholder="ENTRADA[a, b, c]&#10;AND[a, b] -> x1&#10;OR[x1, c] -> x2&#10;NOT[x2] -> salida"></textarea>
+
+          <div class="acciones">
+            <button id="analizar" class="primario">Analizar</button>
+            <button id="ejemplo">Cargar ejemplo</button>
+            <span id="aviso" class="aviso"></span>
+          </div>
+
+          <div id="resumen" class="resumen oculto">
+            <span class="chip"><strong id="datoCompuertas">0</strong> compuertas</span>
+            <span class="chip"><strong id="datoFilas">0</strong> filas</span>
+            <span class="chip"><strong id="datoColumnas">0</strong> señales</span>
+            <span class="chip"><strong id="datoTiempo">0.0</strong> s</span>
+          </div>
+
+          <p class="ayuda">
+            Atajo: <span class="mono">Ctrl + Enter</span> analiza.
+            Los errores aparecen en la pestaña «Errores» mientras escribes.
+          </p>
+        </div>
+      </div>
+
+      <!-- Columna derecha: resultados -->
+      <div class="col-derecha">
+        <div class="panel resultados" id="panelResultados">
+          <div class="cabecera-resultados">
+            <h2>Resultado</h2>
+            <div class="acciones">
+              <div class="menu" id="menuExportar">
+                <button id="botonExportar" class="primario" disabled>Exportar ▾</button>
+                <ul id="listaExportar" class="submenu oculto">
+                  <li><button data-exportar="svg">Diagrama SVG</button></li>
+                  <li><button data-exportar="csv">Tabla de verdad (CSV)</button></li>
+                  <li><button data-exportar="json">Resultado completo (JSON)</button></li>
+                </ul>
+              </div>
+              <button id="descargarSvg" disabled>Descargar SVG</button>
+            </div>
+          </div>
+
+          <div class="pestanas" id="pestanas" role="tablist">
+            <button class="pestana activa" data-panel="diagrama" role="tab">Diagrama</button>
+            <button class="pestana" data-panel="tabla" role="tab">Tabla de verdad</button>
+            <button class="pestana" data-panel="expresion" role="tab">Expresión</button>
+            <button class="pestana" data-panel="tokens" role="tab">Tokens</button>
+            <button class="pestana oculto" data-panel="errores" role="tab">
+              Errores <span class="badge" id="badgeErrores">0</span>
+            </button>
+          </div>
+
+          <div class="cuerpo-paneles">
+            <!-- Pestaña 1: diagrama con zoom y desplazamiento -->
+            <div class="panel-contenido activa" id="panel-diagrama">
+              <div class="visor" id="visor">
+                <div class="lienzo" id="lienzo"></div>
+                <p id="diagramaVacio" class="vacio">Analiza un circuito para ver el diagrama.</p>
+              </div>
+              <div class="controles">
+                <button id="zoomMenos" title="Alejar">−</button>
+                <span id="zoomValor" class="mono">100%</span>
+                <button id="zoomMas" title="Acercar">+</button>
+                <button id="zoomAjustar">Ajustar</button>
+                <button id="pantallaCompleta">Pantalla completa</button>
+              </div>
+            </div>
+
+            <!-- Pestaña 2: tabla de verdad (con filtros y carga por bloques) -->
+            <div class="panel-contenido" id="panel-tabla">
+              <div class="filtros">
+                <label>Salida
+                  <input type="text" id="filtroSalida" class="mono" placeholder="señal de salida"
+                         size="10" list="listaSenales">
+                  <datalist id="listaSenales"></datalist>
+                </label>
+                <label>Valor
+                  <select id="filtroValor">
+                    <option value="">Todos</option>
+                    <option value="1">Solo 1</option>
+                    <option value="0">Solo 0</option>
+                  </select>
+                </label>
+                <span id="infoFilas" class="ayuda"></span>
+              </div>
+              <div class="tabla-scroll" id="tablaScroll">
+                <table id="tablaVerdad"></table>
+              </div>
+              <button id="cargarMas" class="cargar-mas">Cargar más filas</button>
+            </div>
+
+            <!-- Pestaña 3: expresiones booleanas (intermedia y expandida) -->
+            <div class="panel-contenido" id="panel-expresion">
+              <div class="filtros">
+                <label>Notación
+                  <select id="notacionExpresion">
+                    <option value="simbolos">Símbolos (¬ · ⊕ +)</option>
+                    <option value="ascii">ASCII (! &amp; ^ |)</option>
+                  </select>
+                </label>
+                <span class="acciones-expresion">
+                  <button id="copiarExpresion" disabled>Copiar</button>
+                </span>
+                <span id="infoExpresion" class="ayuda"></span>
+              </div>
+              <div id="listaExpresiones"></div>
+              <p id="expresionVacio" class="vacio-panel">
+                Analiza un circuito para ver sus expresiones.
+              </p>
+            </div>
+
+            <!-- Pestaña 4: tokens -->
+            <div class="panel-contenido" id="panel-tokens">
+              <div class="filtros">
+                <label>Tipo de token
+                  <select id="filtroToken"><option value="">Todos</option></select>
+                </label>
+                <span id="infoTokens" class="ayuda"></span>
+              </div>
+              <div class="tabla-scroll">
+                <table id="tablaTokens"></table>
+              </div>
+            </div>
+
+            <!-- Pestaña 5: errores -->
+            <div class="panel-contenido" id="panel-errores">
+              <ul id="listaErrores" class="lista-errores-ui"></ul>
+              <p class="ayuda">Haz clic en un error para saltar a esa línea del circuito.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ RUTA #/historial ==================== -->
+    <section id="vista-historial" class="vista oculto">
+      <div class="panel">
+        <div class="cabecera-resultados">
+          <h2>Historial de análisis</h2>
+          <button id="limpiarHistorial">Limpiar historial</button>
+        </div>
+        <p class="ayuda">
+          Clic en un análisis para cargarlo en el editor (no lo analiza).
+        </p>
+        <div id="listaHistorial" class="historial"></div>
+      </div>
+    </section>
+
+    <!-- ============================ RUTA #/background ==================== -->
+    <section id="vista-background" class="vista oculto">
+      <div class="panel">
+        <h2>Fondo visual</h2>
+        <p class="ayuda">
+          Elige un fondo predefinido o escribe un color libre. El color se
+          aplica a esta página y también al diagrama del circuito (el esquema
+          se adapta solo a fondos claros u oscuros).
+        </p>
+
+        <div id="presets" class="presets"></div>
+
+        <div class="personalizado">
+          <label for="colorLibre">Color libre</label>
+          <input type="color" id="colorLibre" value="#ffffff">
+          <input type="text" id="colorTexto" class="mono" placeholder="#RRGGBB" maxlength="7">
+          <button id="aplicarColor" class="primario">Aplicar</button>
+          <button id="restablecer">Restablecer</button>
+        </div>
+
+        <p id="errorColor" class="error oculto"></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal: diagrama a pantalla completa -->
+  <div id="modalDiagrama" class="modal oculto">
+    <div class="modal-barra">
+      <span>Diagrama</span>
+      <div class="acciones">
+        <button id="modalMenos">−</button>
+        <span id="modalZoomValor" class="mono">100%</span>
+        <button id="modalMas">+</button>
+        <button id="modalAjustar">Ajustar</button>
+        <button id="modalCerrar" class="primario">Cerrar (Esc)</button>
+      </div>
+    </div>
+    <div class="visor modal-visor" id="modalVisor">
+      <div class="lienzo" id="modalLienzo"></div>
+    </div>
+  </div>
+
+  <script src="exportar.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

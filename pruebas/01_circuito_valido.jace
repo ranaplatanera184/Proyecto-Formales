@@ -1,0 +1,5 @@
+# Circuito de ejemplo del enunciado (válido)
+ENTRADA[a, b, c]
+AND[a, b] -> x1
+OR[x1, c] -> x2
+NOT[x2] -> salida

@@ -1,0 +1,87 @@
+{
+  "compuertas": [
+    {
+      "nombre": "AND",
+      "entradas_min": 2,
+      "entradas_max": 0,
+      "operacion": "and",
+      "descripcion": "Devuelve 1 solo si todas sus entradas son 1"
+    },
+    {
+      "nombre": "OR",
+      "entradas_min": 2,
+      "entradas_max": 0,
+      "operacion": "or",
+      "descripcion": "Devuelve 1 si al menos una de sus entradas es 1"
+    },
+    {
+      "nombre": "NOT",
+      "entradas_min": 1,
+      "entradas_max": 1,
+      "operacion": "not",
+      "descripcion": "Invierte la señal de entrada (exactamente 1 entrada)"
+    },
+    {
+      "nombre": "XOR",
+      "entradas_min": 2,
+      "entradas_max": 0,
+      "operacion": "xor",
+      "descripcion": "Devuelve 1 si el número de entradas en 1 es impar"
+    },
+    {
+      "nombre": "NAND",
+      "entradas_min": 2,
+      "entradas_max": 0,
+      "operacion": "nand",
+      "descripcion": "Negación del AND"
+    },
+    {
+      "nombre": "NOR",
+      "entradas_min": 2,
+      "entradas_max": 0,
+      "operacion": "nor",
+      "descripcion": "Devuelve 1 solo si todas sus entradas son 0"
+    },
+    {
+      "nombre": "XNOR",
+      "entradas_min": 2,
+      "entradas_max": 0,
+      "operacion": "xnor",
+      "descripcion": "Devuelve 1 si el número de entradas en 1 es par"
+    }
+  ],
+  "palabras_reservadas": ["ENTRADA", "AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"],
+  "comandos": [
+    {
+      "palabras": ["ANALIZAR"],
+      "tipo": "analizar",
+      "descripcion": "Solicita un circuito y lo analiza (léxico, sintáctico y semántico)"
+    },
+    {
+      "palabras": ["HISTORIAL"],
+      "tipo": "mostrar",
+      "accion": "mostrar_historial",
+      "descripcion": "Muestra los análisis realizados"
+    },
+    {
+      "palabras": ["EXPORTAR"],
+      "tipo": "exportar",
+      "descripcion": "Genera un reporte en .txt del último análisis"
+    },
+    {
+      "palabras": ["EXPRESIONES"],
+      "tipo": "expresiones",
+      "descripcion": "Muestra las expresiones intermedia y expandida del último análisis"
+    },
+    {
+      "palabras": ["AYUDA"],
+      "tipo": "ayuda",
+      "descripcion": "Muestra los comandos disponibles"
+    },
+    {
+      "palabras": ["CERRAR"],
+      "tipo": "salir",
+      "descripcion": "Termina el programa"
+    }
+  ]
+}

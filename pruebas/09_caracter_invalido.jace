@@ -1,0 +1,3 @@
+# Inválido: el carácter $ no pertenece al alfabeto del lenguaje (error léxico)
+ENTRADA[a, b]
+AND[a, b] -> x$1

@@ -1,0 +1,4 @@
+# Inválido: hay un ciclo en las señales x e y
+ENTRADA[a]
+AND[x, a] -> y
+AND[y, a] -> x

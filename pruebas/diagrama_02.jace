@@ -1,0 +1,5 @@
+ENTRADA[a, b, c]
+AND[a, b] -> t1
+OR[t1, c] -> t2
+NAND[c, t2] -> sal1
+XOR[a, b] -> sal2

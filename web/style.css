@@ -1,0 +1,706 @@
+/* ==========================================================================
+   INTERFAZ WEB DE JACE
+   Los colores salen de variables que app.js calcula a partir del fondo
+   elegido en la ruta /background (mismo criterio de luminosidad que usa
+   schematico.py para el diagrama).
+
+   Layout: en pantallas de 1100 px o más la página NO tiene scroll vertical
+   general; el editor queda fijo (sticky) a la izquierda y los resultados a
+   la derecha con pestañas de altura limitada y scroll propio. En pantallas
+   pequeñas se vuelve a una sola columna con scroll normal.
+   ========================================================================== */
+
+:root {
+  --fondo: #FFFFFF;
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-solido: #FFFFFF;
+  --panel-borde: rgba(0, 0, 0, 0.12);
+  --texto: #111827;
+  --tenue: #6b7280;
+  --acento: #010500;
+  --acento-texto: #ffffff;
+  --error: #dc2626;
+  --ok: #16a34a;
+  --sombra: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --alto-barra: 64px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.oculto { display: none !important; }
+.mono { font-family: "Cascadia Code", "Consolas", monospace; }
+
+/* ------------------------------------------------------------------ barra */
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: var(--alto-barra);
+  padding: 0 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-borde);
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.marca { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+
+.logo {
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: var(--acento);
+}
+
+.sub {
+  color: var(--tenue);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barra nav { display: flex; gap: 6px; }
+
+.barra nav a {
+  padding: 8px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--texto);
+  border: 1px solid transparent;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.barra nav a:hover { border-color: var(--panel-borde); }
+
+.barra nav a.activa {
+  background: var(--acento);
+  color: var(--acento-texto);
+  border-color: var(--acento);
+}
+
+.estado {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--tenue);
+}
+
+.muestra {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  flex: none;
+}
+
+input[type="color"] {
+  width: 40px;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ cuerpo */
+main {
+  padding: 16px 20px;
+  height: calc(100vh - var(--alto-barra));
+  overflow: hidden;
+}
+
+.vista { height: 100%; }
+
+.vista.oculto { display: none; }
+
+/* Escritorio: dos columnas y sin scroll general. */
+@media (min-width: 1100px) {
+  #vista-analisis {
+    display: grid;
+    grid-template-columns: 35% 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .col-izquierda {
+    position: sticky;
+    top: calc(var(--alto-barra) + 16px);
+    height: calc(100vh - var(--alto-barra) - 32px);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Sin esto la pista «1fr» se ensancha hasta el ancho de la tabla de verdad
+     (las celdas no parten líneas) y main, que recorta, se come las últimas
+     columnas sin dejar desplazarlas. */
+  .col-derecha { min-width: 0; }
+
+  .col-izquierda .panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 0;
+  }
+
+  .col-izquierda textarea { flex: 1; min-height: 0; }
+}
+
+/* Pantallas estrechas: la barra se apila en dos alturas y se oculta el hex,
+   que es lo único que desborda con la marca, la navegación y el selector. */
+@media (max-width: 560px) {
+  .barra {
+    height: auto;
+    min-height: var(--alto-barra);
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 8px 12px;
+  }
+
+  .barra nav a { padding: 6px 10px; font-size: 13px; }
+  .estado { margin-left: 0; }
+  .estado #textoFondo { display: none; }
+  .estado input[type="color"] { width: 34px; height: 26px; padding: 0; }
+  main { --alto-barra: 104px; }
+}
+
+/* Pantallas pequeñas: una sola columna con scroll normal. */
+@media (max-width: 1099px) {
+  main {
+    height: auto;
+    overflow: visible;
+    padding: 14px;
+  }
+
+  .barra { gap: 12px; padding: 0 12px; }
+  .sub { display: none; }
+  .panel-contenido { max-height: none; }
+  .visor { height: 60vh; }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-borde);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--sombra);
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--tenue);
+}
+
+.ayuda { color: var(--tenue); font-size: 13px; margin: 10px 0 0; }
+
+.error { color: var(--error); font-size: 14px; }
+
+/* ------------------------------------------------------------------ editor */
+textarea {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+textarea:focus { outline: 2px solid var(--acento); outline-offset: 1px; }
+
+.acciones {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.editor .acciones { margin-top: 12px; }
+
+button {
+  padding: 9px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  color: var(--texto);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button:hover:not(:disabled) { border-color: var(--acento); }
+
+button.primario {
+  background: var(--acento);
+  color: var(--acento-texto);
+  border-color: var(--acento);
+  font-weight: 600;
+}
+
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.aviso { color: var(--tenue); font-size: 13px; }
+
+.aviso.error { color: var(--error); }
+
+.resumen {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  font-size: 12px;
+  color: var(--tenue);
+}
+
+.chip strong { color: var(--texto); }
+
+/* -------------------------------------------------------------- resultados */
+.resultados {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--alto-barra) - 32px);
+  min-height: 0;
+  padding-bottom: 12px;
+}
+
+.cabecera-resultados {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.cabecera-resultados h2 { margin: 0; }
+.cabecera-resultados .acciones { margin-left: auto; }
+
+/* Menú desplegable Exportar */
+.menu { position: relative; }
+
+.submenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  min-width: 230px;
+  background: var(--panel-solido);
+  border: 1px solid var(--panel-borde);
+  border-radius: 10px;
+  box-shadow: var(--sombra);
+}
+
+.submenu button {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 9px 10px;
+  border-radius: 7px;
+}
+
+.submenu button:hover { background: var(--acento); color: var(--acento-texto); }
+
+/* Pestañas */
+.pestanas {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--panel-borde);
+  overflow-x: auto;
+}
+
+.pestana {
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 9px 14px;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+
+.pestana:hover { border-color: var(--panel-borde); }
+
+.pestana.activa {
+  color: var(--acento);
+  border-bottom-color: var(--acento);
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--error);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.cuerpo-paneles { flex: 1; min-height: 0; }
+
+.panel-contenido {
+  display: none;
+  height: 100%;
+  max-height: calc(100vh - 210px);
+  overflow: auto;
+  padding-top: 12px;
+}
+
+.panel-contenido.activa { display: flex; flex-direction: column; gap: 10px; }
+
+/* Expresiones booleanas */
+.bloque-expresion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--panel-borde);
+}
+
+.bloque-expresion:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.bloque-expresion h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.bloque-expresion h4 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: var(--tenue);
+  font-weight: 600;
+}
+
+.codigo-expresion {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo-editor);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.aviso-expresion {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--panel-borde);
+  color: var(--tenue);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.acciones-expresion {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* El mensaje vacío no va absoluto como el del diagrama: aquí el panel es quien
+   crece con el contenido, no un visor de altura fija. */
+.vacio-panel {
+  margin: 0;
+  padding: 32px 12px;
+  color: var(--tenue);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ------------------------------------------------------- diagrama: visor */
+.visor {
+  position: relative;
+  height: calc(100vh - 280px);
+  min-height: 260px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  cursor: grab;
+  flex: 1;
+  min-height: 0;
+}
+
+.visor.arrastrando { cursor: grabbing; }
+
+.lienzo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.lienzo svg { display: block; }
+
+.vacio {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--tenue);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.controles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.controles .mono { min-width: 52px; text-align: center; color: var(--tenue); }
+
+/* ---------------------------------------------------------------- tablas */
+.filtros {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.filtros label { color: var(--tenue); font-size: 13px; }
+
+.filtros input[type="text"], .filtros select {
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  color: var(--texto);
+  font-size: 13px;
+  margin-left: 6px;
+  font-family: inherit;
+}
+
+.tabla-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--panel-borde);
+  border-radius: 10px;
+}
+
+table { border-collapse: separate; border-spacing: 0; font-size: 13px; width: max-content; min-width: 100%; }
+
+th, td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--panel-borde);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Encabezado fijo al hacer scroll interno de la tabla. */
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel-solido);
+  color: var(--tenue);
+  font-weight: 600;
+  box-shadow: inset 0 -1px 0 var(--panel-borde);
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: color-mix(in srgb, var(--acento) 8%, transparent); }
+
+td.cero { color: var(--tenue); opacity: 0.65; }
+td.uno { color: var(--acento); font-weight: 700; }
+
+.cargar-mas { align-self: center; }
+
+/* ---------------------------------------------------------------- errores */
+.lista-errores-ui { margin: 0; padding: 0; list-style: none; }
+
+.lista-errores-ui li {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--error);
+  border-left-width: 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  background: var(--panel-solido);
+}
+
+.lista-errores-ui li:hover { background: color-mix(in srgb, var(--error) 10%, var(--panel-solido)); }
+
+.lista-errores-ui .posicion {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--error);
+  color: #fff;
+  font-size: 12px;
+}
+
+.lista-errores-ui .detalle { display: block; margin-top: 6px; color: var(--tenue); font-size: 13px; }
+
+/* -------------------------------------------------------------- historial */
+.historial { display: grid; gap: 12px; }
+
+.tarjeta {
+  border: 1px solid var(--panel-borde);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--fondo);
+  cursor: pointer;
+}
+
+.tarjeta:hover { border-color: var(--acento); }
+
+.tarjeta-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tarjeta-cabecera .estado-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #fff;
+  background: var(--ok);
+}
+
+.tarjeta-cabecera .estado-chip.error { background: var(--error); }
+
+.tarjeta-cabecera .fecha { color: var(--tenue); font-size: 13px; }
+.tarjeta-cabecera .meta { color: var(--tenue); font-size: 13px; margin-left: auto; }
+
+.tarjeta .primera-linea {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tarjeta-acciones { display: flex; gap: 8px; margin-top: 10px; }
+.tarjeta-acciones button { padding: 6px 12px; font-size: 13px; }
+.tarjeta-acciones .borrar { color: var(--error); }
+
+/* --------------------------------------------------------------- presets */
+.presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 8px 0 18px;
+}
+
+.preset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  color: var(--texto);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.preset:hover { border-color: var(--acento); }
+
+.preset.activo {
+  border-color: var(--acento);
+  box-shadow: 0 0 0 1px var(--acento) inset;
+}
+
+.preset .muestra { width: 26px; height: 26px; border-radius: 8px; }
+
+.personalizado {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--panel-borde);
+}
+
+.personalizado label { color: var(--tenue); font-size: 14px; }
+
+input[type="text"] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-borde);
+  background: var(--fondo);
+  color: var(--texto);
+  font-size: 14px;
+}
+
+/* ----------------------------------------------------------------- modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--fondo);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-barra {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--panel-borde);
+  background: var(--panel);
+}
+
+.modal-barra .acciones { margin-left: auto; }
+.modal-visor { flex: 1; height: auto; border: none; border-radius: 0; }

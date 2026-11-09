@@ -1,0 +1,3 @@
+# Inválido: la señal z no está definida
+ENTRADA[a, b]
+AND[a, z] -> x
