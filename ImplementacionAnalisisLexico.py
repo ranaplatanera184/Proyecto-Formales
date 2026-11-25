@@ -6,21 +6,17 @@
 # para mantener las reglas del lenguaje en un unico lugar.
 # ============================================================================
 
-import json
-
 from Token import Token
+from rutas import cargar_reglas
 
 
-def _cargar_palabras_reservadas(ruta="reglas.json"):
-    """Lee las palabras reservadas del lenguaje desde reglas.json."""
-    reservadas = {"ENTRADA", "AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"}
-    try:
-        with open(ruta, "r", encoding="utf-8") as archivo:
-            reglas = json.load(archivo)
-        reservadas = set(reglas.get("palabras_reservadas", reservadas))
-    except Exception:
-        pass
-    return reservadas
+def _cargar_palabras_reservadas(ruta=None):
+    """Lee las palabras reservadas del lenguaje desde reglas.json.
+
+    La ruta se resuelve en rutas.py (no depende del directorio actual). Si el
+    archivo falta, se lanza rutas.ErrorReglas: no se inventan reglas.
+    """
+    return set(cargar_reglas(ruta).get("palabras_reservadas", []))
 
 
 def _es_letra_ascii(caracter):

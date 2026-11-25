@@ -12,12 +12,12 @@
 # Como resultado construye la estructura interna del circuito y un AST JSON.
 # ============================================================================
 
-import json
+from rutas import cargar_reglas
 
 
 class AnalisisSintactico:
 
-    def __init__(self, tokens, gestorReglas=None, rutaReglas="reglas.json"):
+    def __init__(self, tokens, gestorReglas=None, rutaReglas=None):
         # Fase sintactica: trabaja sobre la lista de tokens.
         self.tokens = tokens
         self.pos = 0
@@ -27,14 +27,10 @@ class AnalisisSintactico:
         if gestorReglas is not None:
             self.nombres_compuertas = set(gestorReglas.obtener_nombres_compuertas())
         else:
-            try:
-                with open(rutaReglas, "r", encoding="utf-8") as archivo:
-                    reglas = json.load(archivo)
-                self.nombres_compuertas = {
-                    c["nombre"] for c in reglas.get("compuertas", [])
-                }
-            except Exception:
-                self.nombres_compuertas = {"AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"}
+            reglas = cargar_reglas(rutaReglas)
+            self.nombres_compuertas = {
+                c["nombre"] for c in reglas.get("compuertas", [])
+            }
 
     def actual(self):
         """Devuelve el token actual o None si se acabó la entrada."""

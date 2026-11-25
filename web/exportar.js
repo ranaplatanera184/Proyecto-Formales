@@ -30,6 +30,14 @@
     return lineas.join("\n") + "\n";
   }
 
+  /** Solo las filas (sin encabezado), para exportar la tabla por bloques. */
+  function filasCSV(filas, separador) {
+    const sep = separador || ",";
+    const lista = filas || [];
+    const cuerpo = lista.map((fila) => fila.map(escapar).join(sep)).join("\n");
+    return lista.length ? cuerpo + "\n" : "";
+  }
+
   /** Resultado completo del análisis en JSON (indentado, legible). */
   function construirJSON(datos, sangria) {
     return JSON.stringify(datos, null, sangria === undefined ? 2 : sangria) + "\n";
@@ -56,6 +64,7 @@
 
   raiz.Exportacion = {
     construirCSV,
+    filasCSV,
     construirJSON,
     construirSVG,
     nombreArchivo,

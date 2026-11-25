@@ -8,8 +8,12 @@
 # ============================================================================
 
 import json
+import logging
 import os
 import sys
+import traceback
+
+from rutas import cargar_reglas, ubicar_reglas
 
 from ImplementacionAnalisisLexico import tokenizar_circuito
 from AnalisisSintactico import AnalisisSintactico
@@ -19,34 +23,41 @@ import schematico
 
 from schematico import RUTA_DIAGRAMA_SVG, RUTA_DIAGRAMA_PNG
 from schematico import FONDO, normalizar_color
+import diagnosticos as diag
+
 RUTA_REPORTE = "reporte_circuito.txt"
+
+# Máximo de entradas para calcular la tabla de verdad completa en /analizar
+# (2^14 = 16.384 filas). Por encima se omite y se pide por bloques con la
+# ruta /tabla. Se puede cambiar con la variable de entorno JACE_LIMITE_TABLA.
+LIMITE_TABLA = int(os.environ.get("JACE_LIMITE_TABLA", "14"))
+
+registro = logging.getLogger("jace")
+
+
+def mensaje_error_interno(error):
+    """Texto entendible para un fallo del propio compilador (no del circuito)."""
+    detalle = str(error) or type(error).__name__
+    return (f"{type(error).__name__}: {detalle}. "
+            "Es un fallo del compilador, no de tu circuito: por favor repórtalo")
 
 
 class GestorReglas:
 
-    def __init__(self, ruta="reglas.json", almacenamiento=None):
-        with open(self._ubicar_reglas(ruta), "r", encoding="utf-8") as archivo:
-            self.reglas = json.load(archivo)
+    def __init__(self, ruta=None, almacenamiento=None):
+        self.reglas = cargar_reglas(ruta)
         self.almacenamiento = almacenamiento
         # Último análisis exitoso, para que el comando EXPRESIONES pueda
         # reimprimirlo sin pedir el circuito otra vez.
         self.ultimo_resultado = None
+        # Analizador semántico del último circuito válido (para /tabla).
+        self._semantico = None
 
     @staticmethod
-    def _ubicar_reglas(ruta):
-        """Ubica reglas.json aunque el programa se ejecute en otra carpeta.
-
-        Al abrir el ejecutable (jace-app.exe) el archivo viaja dentro del
-        propio binario, así que se busca primero en el directorio actual y,
-        si no está, junto al programa (o dentro del ejecutable con PyInstaller).
-        """
-        if os.path.isabs(ruta) or os.path.isfile(ruta):
-            return ruta
-
-        base = getattr(sys, "_MEIPASS", None)
-        if base is None:
-            base = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base, ruta)
+    def _ubicar_reglas(ruta=None):
+        """Ruta de reglas.json (se delega en rutas.py, el único punto que la
+        resuelve, también dentro del ejecutable de PyInstaller)."""
+        return ubicar_reglas(ruta)
 
     # ------------------------------------------------------------------
     # Reglas cargadas desde reglas.json
@@ -73,7 +84,8 @@ class GestorReglas:
     # Fases del compilador: análisis completo de un circuito
     # ------------------------------------------------------------------
     def analizar(self, texto, imprimir=True, fondo=FONDO, escribir_archivos=False,
-                  con_diagrama=True, registrar=True, con_resultados=True):
+                  con_diagrama=True, registrar=True, con_resultados=True,
+                  limite_tabla=None):
         """Ejecuta las fases léxica, sintáctica y semántica sobre un circuito.
 
         Devuelve un diccionario con el resultado (tokens, errores, orden
@@ -91,139 +103,205 @@ class GestorReglas:
         validar rápido). `con_resultados=False` se detiene después de las
         comprobaciones semánticas, sin calcular tabla de verdad ni expresiones
         (lo usa la validación mientras se escribe en la web). `registrar=False`
-        no añade el análisis al historial.
+        no añade el análisis al historial. `limite_tabla` es el máximo de
+        entradas para calcular la tabla completa (por defecto LIMITE_TABLA).
+
+        Nunca lanza excepciones: un fallo interno se devuelve como un
+        diagnóstico de la fase "interno" y se registra en el log.
         """
-        if not texto:
-            texto = ""
-        # Solo se recorta el final: quitar líneas del principio correría los
-        # números de línea que se muestran en los errores.
-        texto = texto.rstrip()
-        fondo = normalizar_color(fondo) or FONDO
-
-        tokens = []
-        errores = []
-        estructura = None
-        orden = []
-        tabla = {"señales": [], "filas": []}
-        expresiones = []
-        expresiones_booleanas = {}
-        tabla_simbolos = []
-        advertencias = []
-        ast = None
-        dot = ""
-        svg = ""
-        circuito = None
-        exito = False
-
-        if not texto:
-            errores.append("Error léxico línea 1: el circuito está vacío")
-        else:
-            # 1. FASE LEXICA.
-            tokens, errores = tokenizar_circuito(
-                texto, palabras_reservadas=self.obtener_palabras_reservadas())
-
-            # 2. FASE SINTACTICA.
-            if not errores:
-                try:
-                    parser = AnalisisSintactico(tokens, gestorReglas=self)
-                    estructura = parser.construir_circuito()
-                    ast = estructura["ast"]
-                except SyntaxError as error:
-                    errores.append(str(error))
-
-            # 3. FASE SEMANTICA y EVALUACION.
-            if not errores and estructura is not None:
-                semantico = AnalizadorSemantico(
-                    estructura["entradas"],
-                    estructura["compuertas"],
-                    self.reglas["compuertas"],
-                    linea_entrada=estructura["linea_entrada"])
-                tabla_simbolos = semantico.tabla_simbolos()
-                advertencias = semantico.advertencias()
-                errores_semanticos = semantico.revisar()
-                errores.extend(errores_semanticos)
-
-                if not errores_semanticos:
-                    # La validación rápida (con_resultados=False) termina aquí:
-                    # calcular la tabla de verdad de 2^n filas con cada tecla
-                    # congelaba la interfaz en circuitos medianos.
-                    if con_resultados:
-                        orden = semantico.orden_topologico()
-                        tabla = semantico.tabla_verdad()
-                        expresiones = [
-                            {"salida": salida, "expresion": expresion}
-                            for salida, expresion in semantico.expresiones_booleanas()
-                        ]
-                        # Expresiones en forma intermedia y expandida, en las dos
-                        # notaciones. Es texto, así que no necesita el diagrama.
-                        simbolos = generar_expresiones(semantico)
-                        ascii_ = generar_expresiones(semantico, "ascii")
-                        expresiones_booleanas = {
-                            salida: {
-                                "intermedia": datos["intermedia"],
-                                "expandida": datos["expandida"],
-                                "aviso": datos["aviso"],
-                                "intermedia_ascii": ascii_[salida]["intermedia"],
-                                "expandida_ascii": ascii_[salida]["expandida"],
-                            }
-                            for salida, datos in simbolos.items()
-                        }
-                        # Diagrama esquemático (SchemDraw) y DOT de respaldo.
-                        # con_diagrama=False permite validar sin dibujar nada.
-                        if con_diagrama:
-                            circuito = schematico.generar_diagrama(
-                                estructura["entradas"], estructura["compuertas"],
-                                fondo=fondo)
-                            dot = generar_dot(estructura["entradas"],
-                                              estructura["compuertas"])
-                            svg = schematico.exportar(
-                                circuito, escribir_archivos=escribir_archivos)
-                    exito = True
+        try:
+            resultado = self._analizar(
+                texto, fondo, escribir_archivos, con_diagrama, con_resultados,
+                LIMITE_TABLA if limite_tabla is None else limite_tabla)
+        except Exception as error:  # fallo del compilador, no del circuito
+            registro.error("Error interno al analizar el circuito: %r", error)
+            if os.environ.get("JACE_DEBUG") == "1":
+                traceback.print_exc()
+            resultado = self._resultado_vacio()
+            resultado["texto"] = (texto or "").rstrip()
+            fallo = diag.Diagnostico("interno", "error", None, None,
+                                     mensaje_error_interno(error))
+            resultado["errores"] = [fallo.texto()]
+            resultado["diagnosticos"] = [fallo.to_json()]
 
         # Registro en el historial (entrada, resultado, errores y expresiones).
         if self.almacenamiento is not None and registrar:
-            self.almacenamiento.agregar_analisis(texto, exito, errores,
-                                                 expresiones_booleanas)
+            self.almacenamiento.agregar_analisis(
+                resultado["texto"], resultado["exito"], resultado["errores"],
+                resultado["expresiones_booleanas"])
 
         if imprimir:
-            if exito:
-                self._imprimir_resultado(texto, tokens, estructura, orden, tabla,
-                                        expresiones, dot, escribir_archivos,
-                                        con_diagrama, ast=ast,
-                                        tabla_simbolos=tabla_simbolos,
-                                        expresiones_booleanas=expresiones_booleanas,
-                                        advertencias=advertencias)
+            if resultado["exito"]:
+                self._imprimir_resultado(resultado, escribir_archivos, con_diagrama)
             else:
-                self._imprimir_errores(errores, advertencias)
-
-        resultado = {
-            "exito": exito,
-            "errores": errores,
-            "tokens": [t.to_json() for t in tokens],
-            "entradas": estructura["entradas"] if estructura else [],
-            "compuertas": estructura["compuertas"] if estructura else [],
-            "ast": ast,
-            "tabla_simbolos": tabla_simbolos,
-            "advertencias": advertencias,
-            "orden_topologico": orden,
-            "tabla_verdad": tabla,
-            "expresiones": expresiones,
-            "expresiones_booleanas": expresiones_booleanas,
-            "diagrama_dot": dot,
-            "diagrama_svg": svg,
-        }
+                self._imprimir_errores(resultado["errores"], resultado["advertencias"])
 
         # Solo el último análisis exitoso se recuerda para el comando EXPRESIONES:
         # un circuito con errores no deja expresiones que mostrar.
-        if exito:
+        if resultado["exito"]:
             self.ultimo_resultado = resultado
 
         return resultado
 
-    def _imprimir_resultado(self, texto, tokens, estructura, orden, tabla, expresiones, dot,
-                            escribir_archivos=False, con_diagrama=True, ast=None,
-                            tabla_simbolos=None, expresiones_booleanas=None,
-                            advertencias=None):
+    def preparar_evaluacion(self, texto):
+        """Valida el circuito y devuelve (analizador semántico, resultado).
+
+        El analizador es None si el circuito tiene errores. Lo usan las rutas
+        que evalúan filas sueltas (/tabla) sin repetir todo el análisis.
+        """
+        resultado = self.analizar(texto, imprimir=False, con_diagrama=False,
+                                  registrar=False, con_resultados=False)
+        semantico = self._semantico if resultado["exito"] else None
+        return semantico, resultado
+
+    @staticmethod
+    def _resultado_vacio():
+        return {
+            "exito": False,
+            "errores": [],
+            "diagnosticos": [],
+            "tokens": [],
+            "entradas": [],
+            "compuertas": [],
+            "ast": None,
+            "tabla_simbolos": [],
+            "advertencias": [],
+            "orden_topologico": [],
+            "tabla_verdad": {"señales": [], "filas": []},
+            "tabla_omitida": None,
+            "expresiones": [],
+            "expresiones_booleanas": {},
+            "diagrama_dot": "",
+            "diagrama_svg": "",
+            "texto": "",
+        }
+
+    def _analizar(self, texto, fondo, escribir_archivos, con_diagrama,
+                  con_resultados, limite_tabla):
+        # Solo se recorta el final: quitar líneas del principio correría los
+        # números de línea que se muestran en los errores.
+        texto = (texto or "").rstrip()
+        fondo = normalizar_color(fondo) or FONDO
+        resultado = self._resultado_vacio()
+        resultado["texto"] = texto
+
+        diagnosticos = []
+        tokens = []
+        estructura = None
+
+        if not texto:
+            diagnosticos.append(diag.error("léxico", 1, 1, "el circuito está vacío"))
+        else:
+            # 1. FASE LEXICA.
+            tokens, errores_lexicos = tokenizar_circuito(
+                texto, palabras_reservadas=self.obtener_palabras_reservadas())
+            diagnosticos.extend(diag.desde_texto(e, "léxico") for e in errores_lexicos)
+
+            # 2. FASE SINTACTICA.
+            if not errores_lexicos:
+                try:
+                    parser = AnalisisSintactico(tokens, gestorReglas=self)
+                    estructura = parser.construir_circuito()
+                    resultado["ast"] = estructura["ast"]
+                except SyntaxError as error:
+                    diagnosticos.append(diag.desde_texto(str(error), "sintáctico"))
+                    estructura = None
+
+        resultado["tokens"] = [t.to_json() for t in tokens]
+
+        # 3. FASE SEMANTICA y EVALUACION.
+        self._semantico = None
+        if estructura is not None:
+            resultado["entradas"] = estructura["entradas"]
+            resultado["compuertas"] = estructura["compuertas"]
+            semantico = AnalizadorSemantico(
+                estructura["entradas"],
+                estructura["compuertas"],
+                self.reglas["compuertas"],
+                linea_entrada=estructura["linea_entrada"])
+            resultado["tabla_simbolos"] = semantico.tabla_simbolos()
+            errores_semanticos = semantico.revisar()
+            diagnosticos.extend(diag.desde_texto(e, "semántico")
+                                for e in errores_semanticos)
+            diagnosticos.extend(diag.desde_texto(a, "semántico")
+                                for a in semantico.advertencias())
+
+            if not errores_semanticos:
+                # La validación rápida (con_resultados=False) termina aquí:
+                # calcular la tabla de verdad de 2^n filas con cada tecla
+                # congelaba la interfaz en circuitos medianos.
+                if con_resultados:
+                    self._calcular_resultados(resultado, semantico, estructura,
+                                              fondo, escribir_archivos,
+                                              con_diagrama, limite_tabla)
+                resultado["exito"] = True
+                self._semantico = semantico
+
+        resultado["diagnosticos"] = [d.to_json() for d in diagnosticos]
+        resultado["errores"] = [d.texto() for d in diagnosticos if d.es_error]
+        resultado["advertencias"] = [d.texto() for d in diagnosticos if not d.es_error]
+        return resultado
+
+    def _calcular_resultados(self, resultado, semantico, estructura, fondo,
+                             escribir_archivos, con_diagrama, limite_tabla):
+        """Orden, tabla (si cabe), expresiones y diagrama de un circuito válido."""
+        resultado["orden_topologico"] = semantico.orden_topologico()
+
+        total_entradas = len(estructura["entradas"])
+        if total_entradas <= limite_tabla:
+            resultado["tabla_verdad"] = semantico.tabla_verdad()
+        else:
+            # 2^n filas no caben en una respuesta: se omite y la web las pide
+            # por bloques a la ruta /tabla.
+            filas = 2 ** total_entradas
+            resultado["tabla_verdad"] = {"señales": semantico.senales_tabla(),
+                                         "filas": []}
+            resultado["tabla_omitida"] = {
+                "motivo": (f"El circuito tiene {total_entradas} entradas: la tabla "
+                           f"completa tendría {filas:,} filas (el límite para "
+                           f"calcularla de una vez es {limite_tabla} entradas)"
+                           ).replace(",", "."),
+                "filas_totales": filas,
+                "limite_entradas": limite_tabla,
+            }
+
+        resultado["expresiones"] = [
+            {"salida": salida, "expresion": expresion}
+            for salida, expresion in semantico.expresiones_booleanas()
+        ]
+        # Expresiones en forma intermedia y expandida, en las dos
+        # notaciones. Es texto, así que no necesita el diagrama.
+        simbolos = generar_expresiones(semantico)
+        ascii_ = generar_expresiones(semantico, "ascii")
+        resultado["expresiones_booleanas"] = {
+            salida: {
+                "intermedia": datos["intermedia"],
+                "expandida": datos["expandida"],
+                "aviso": datos["aviso"],
+                "intermedia_ascii": ascii_[salida]["intermedia"],
+                "expandida_ascii": ascii_[salida]["expandida"],
+            }
+            for salida, datos in simbolos.items()
+        }
+        # Diagrama esquemático (SchemDraw) y DOT de respaldo.
+        # con_diagrama=False permite validar sin dibujar nada.
+        if con_diagrama:
+            circuito = schematico.generar_diagrama(
+                estructura["entradas"], estructura["compuertas"], fondo=fondo)
+            resultado["diagrama_dot"] = generar_dot(estructura["entradas"],
+                                                    estructura["compuertas"])
+            resultado["diagrama_svg"] = schematico.exportar(
+                circuito, escribir_archivos=escribir_archivos)
+
+    def _imprimir_resultado(self, resultado, escribir_archivos=False, con_diagrama=True):
+        texto = resultado["texto"]
+        tokens = resultado["tokens"]
+        ast = resultado["ast"]
+        tabla_simbolos = resultado["tabla_simbolos"]
+        advertencias = resultado["advertencias"]
+        expresiones_booleanas = resultado["expresiones_booleanas"]
+        orden = resultado["orden_topologico"]
+        tabla = resultado["tabla_verdad"]
         print("\n=== ANÁLISIS DE CIRCUITO ===")
 
         print("\n== ENTRADA ==")
@@ -233,7 +311,8 @@ class GestorReglas:
         # Salida 1: lista de tokens reconocidos (con línea y columna).
         print("\n== TOKENS RECONOCIDOS ==")
         for token in tokens:
-            print(f"  {token.token:26} {token.valor!r:20} (línea {token.linea}, columna {token.columna})")
+            print(f"  {token['token']:26} {token['valor']!r:20} "
+                  f"(línea {token['linea']}, columna {token['columna']})")
 
         # Fase 2: árbol sintáctico generado por el parser.
         print("\n== ÁRBOL SINTÁCTICO (AST) ==")
@@ -266,6 +345,8 @@ class GestorReglas:
 
         # Fase 6: tabla de verdad y diagrama.
         print("\n== TABLA DE VERDAD ==")
+        if resultado.get("tabla_omitida"):
+            print(f"  {resultado['tabla_omitida']['motivo']}.")
         cabecera = " | ".join(tabla["señales"])
         print(f"  {cabecera}")
         print("  " + "-" * max(len(cabecera), 1))

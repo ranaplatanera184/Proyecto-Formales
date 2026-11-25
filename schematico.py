@@ -32,9 +32,10 @@
 # respaldo textual; este módulo solo exporta SVG y PNG vectoriales.
 # ============================================================================
 
+import logging
 import math
 import os
-import tempfile
+from io import BytesIO
 
 import matplotlib
 matplotlib.use("Agg")
@@ -706,6 +707,29 @@ def _agregar_terminal(d, s, x, y, estilo_terminal, estilo):
 # ---------------------------------------------------------------------------
 # Exportación.
 # ---------------------------------------------------------------------------
+registro = logging.getLogger("jace.diagrama")
+
+
+def _svg_en_memoria(circuito):
+    """SVG del dibujo sin pasar por el disco ni rasterizar un PNG.
+
+    Equivale a `circuito.save(ruta.svg, transparent=False)`, pero en un
+    BytesIO. Antes se guardaban un PNG a 300 dpi y el SVG en una carpeta
+    temporal aunque solo se necesitaba el SVG: codificar el PNG se llevaba
+    más de la mitad del tiempo de /analizar.
+    """
+    if circuito.fig is None:
+        circuito.draw(show=False)
+    figura = circuito.fig
+    fig = figura.getfig()
+    fig.subplots_adjust(0, 0, 1, 1)
+    salida = BytesIO()
+    fig.savefig(salida, format="svg", bbox_inches="tight", transparent=False,
+                dpi=72, bbox_extra_artists=figura.ax.get_default_bbox_extra_artists(),
+                pad_inches=0)
+    return salida.getvalue().decode("utf-8")
+
+
 def exportar(circuito, base=RUTA_DIAGRAMA, escala=1, escribir_archivos=True):
     """Guarda el PNG (300 dpi * escala) y el SVG. Devuelve el contenido SVG.
 
@@ -715,26 +739,24 @@ def exportar(circuito, base=RUTA_DIAGRAMA, escala=1, escribir_archivos=True):
     exporta con transparent=False de modo que PNG y SVG muestran el color de
     fondo en toda la imagen (incluido el margen). El SVG es 100% vectorial.
 
-    Con `escribir_archivos=False` no se deja ningún archivo en el disco: la
-    exportación se hace en una carpeta temporal y solo se devuelve el SVG
-    (lo usa la interfaz web, que no debe ensuciar el directorio del usuario).
-    """
-    if not escribir_archivos:
-        with tempfile.TemporaryDirectory() as temporal:
-            return exportar(circuito, base=os.path.join(temporal, RUTA_DIAGRAMA),
-                            escala=escala)
+    Con `escribir_archivos=False` no se deja ningún archivo en el disco: solo
+    se genera el SVG en memoria (lo usa la interfaz web, que no debe ensuciar
+    el directorio del usuario).
 
-    ruta_png = base + ".png"
-    ruta_svg = base + ".svg"
+    Si matplotlib falla se devuelve "" y el motivo queda en el log (con el
+    traceback completo si JACE_DEBUG=1): el análisis no se cae por el dibujo.
+    """
     try:
+        if not escribir_archivos:
+            return _svg_en_memoria(circuito)
+
+        ruta_png = base + ".png"
+        ruta_svg = base + ".svg"
         circuito.save(ruta_png, transparent=False, dpi=300 * escala)
         circuito.save(ruta_svg, transparent=False)
         with open(ruta_svg, encoding="utf-8") as archivo:
             return archivo.read()
-    except Exception:
-        # Con la variable JACE_DEBUG=1 se muestra el error real (por ejemplo
-        # dentro del ejecutable, donde fallan los recursos de matplotlib).
-        if os.environ.get("JACE_DEBUG"):
-            import traceback
-            traceback.print_exc()
+    except Exception as error:
+        registro.warning("No se pudo exportar el diagrama: %r", error,
+                         exc_info=os.environ.get("JACE_DEBUG") == "1")
         return ""

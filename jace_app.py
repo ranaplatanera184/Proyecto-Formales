@@ -74,7 +74,8 @@ def servir(app, puerto, abrir):
     try:
         input()
     except (EOFError, KeyboardInterrupt):
-        pass
+        # Ctrl+C o fin de la entrada estándar: es la forma normal de cerrar.
+        print()
     finally:
         print("\n Cerrando JACE...")
         servidor.should_exit = True

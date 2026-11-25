@@ -397,9 +397,12 @@ def test_interfaz_tiene_navegacion_y_pestanas():
                   'data-vista="background"', 'id="botonExportar"',
                   'id="menuExportar"', 'data-exportar="svg"',
                   'data-exportar="csv"', 'data-exportar="json"',
-                  'id="visor"', 'id="pestanas"', 'data-panel="tabla"',
-                  'data-panel="expresion"', 'data-panel="tokens"',
-                  'data-panel="errores"',
+                  'id="visor"', 'id="pestanas"', 'data-sub="tabla"',
+                  'data-sub="expresion"', 'data-sub="diagrama"',
+                  'data-sub="verilog"', 'data-panel="tokens"',
+                  'data-panel="errores"', 'data-panel="intermedio"',
+                  'data-panel="resultados"', 'role="tablist"',
+                  'aria-selected="true"',
                   'id="panel-expresion"', 'id="notacionExpresion"',
                   'id="copiarExpresion"', 'id="listaExpresiones"',
                   'id="tablaVerdad"', 'id="tablaTokens"', 'id="listaErrores"',
@@ -421,3 +424,21 @@ def test_interfaz_no_ofrece_cerrar_jace():
     pagina = cliente().get("/").text.lower()
     assert "cerrar jade" not in pagina
     assert 'id="salir"' not in pagina
+
+
+def test_las_pestanas_tienen_numeros_unicos_del_1_al_7():
+    """V2: siete pestañas numeradas sin repetir y ninguna oculta de inicio."""
+    import re
+    pagina = cliente().get("/").text
+    numeros = re.findall(r'class="pestana[^"]*"[^>]*><span class="num">(\d)</span>', pagina)
+    assert numeros == ["1", "2", "3", "4", "5", "6", "7"]
+    pestanas = re.findall(r'<button class="pestana[^"]*"[^>]*>', pagina)
+    assert not any("oculto" in p for p in pestanas)
+
+
+def test_app_js_no_oculta_la_pestana_de_diagnosticos():
+    """V2: antes se ocultaba la pestaña 4 sin diagnósticos y se corría la numeración."""
+    codigo = cliente().get("/app.js").text
+    assert 'pestana.classList.toggle("oculto"' not in codigo
+    # V3: la columna ya no se inventa con el primer token de la línea.
+    assert "columnaDeLinea" not in codigo

@@ -4,22 +4,32 @@
 # Expone el compilador mediante FastAPI:
 #   - Interfaz web (página servida en "/") con dos rutas de vista: el análisis
 #     del circuito y la vista "background" (fondo visual de la página).
-#   - Rutas del computador: /info, /analizar, /background (GET y POST).
+#   - Rutas del computador: /info, /analizar, /validar, /tabla, /historial y
+#     /background (GET y POST).
 # No depende de la consola (imprimir=False) y no escribe archivos en el disco.
 # ============================================================================
 
+import logging
 import os
 import sys
+import traceback
 from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from gestor_reglas import GestorReglas
+from gestor_reglas import GestorReglas, LIMITE_TABLA, mensaje_error_interno
 from almacenamiento import Almacenamiento
+from rutas import ruta_recurso
+import diagnosticos as diag
 import schematico
+
+registro = logging.getLogger("jace.api")
+
+# Máximo de filas que devuelve una sola petición a /tabla.
+MAXIMO_FILAS_POR_PETICION = 4096
 
 VERSION = "2.1"
 
@@ -35,10 +45,7 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 def ruta_web():
     """Carpeta con la interfaz web (web/). Compatible con PyInstaller."""
-    base = getattr(sys, "_MEIPASS", None)
-    if base:
-        return os.path.join(base, "web")
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+    return ruta_recurso("web")
 
 
 # Fondos predefinidos de la interfaz (además del color libre).
@@ -56,10 +63,32 @@ FONDOS = [
 # Fondo activo de la interfaz (lo fija la ruta POST /background).
 FONDO_ACTIVO = {"valor": schematico.FONDO}
 
-# Historial compartido: es el mismo almacenamiento que usa el comando
-# HISTORIAL de la consola, así que la vista «Historial» de la web y la
-# consola muestran los mismos análisis mientras la aplicación esté abierta.
+# Historial de la interfaz web: vive en la memoria de este servidor mientras
+# la aplicación está abierta. La consola (main.py) es otro proceso con su
+# propio historial, así que los dos NO se comparten.
 ALMACENAMIENTO = Almacenamiento()
+
+
+def respuesta_error_interno(error):
+    """Convierte una excepción del compilador en un diagnóstico entendible.
+
+    El detalle técnico se registra en el log (y el traceback completo se
+    imprime si JACE_DEBUG=1); al usuario le llega un mensaje claro.
+    """
+    registro.error("Error interno en la API: %r", error)
+    if os.environ.get("JACE_DEBUG") == "1":
+        traceback.print_exc()
+    fallo = diag.Diagnostico("interno", "error", None, None,
+                             mensaje_error_interno(error))
+    return {"exito": False, "errores": [fallo.texto()],
+            "diagnosticos": [fallo.to_json()], "advertencias": []}
+
+
+def respuesta_vacia():
+    vacio = diag.error("léxico", 1, 1, "el circuito está vacío",
+                       "escribe un circuito que empiece con ENTRADA[...]")
+    return {"exito": False, "errores": [vacio.texto()],
+            "diagnosticos": [vacio.to_json()], "advertencias": []}
 
 
 def fondo_actual():
@@ -88,6 +117,12 @@ class FondoRequest(BaseModel):
     fondo: str
 
 
+class TablaRequest(BaseModel):
+    codigo: str
+    desde: int = Field(0, ge=0)
+    cantidad: int = Field(256, ge=1)
+
+
 # ---------------------------------------------------------------------------
 # Rutas del computador
 # ---------------------------------------------------------------------------
@@ -98,7 +133,9 @@ def inicio():
         "version": VERSION,
         "descripcion": "Compilador de circuitos lógicos digitales",
         "estado": "En desarrollo",
-        "rutas": ["/info", "/analizar", "/validar", "/historial", "/background"],
+        "rutas": ["/info", "/analizar", "/validar", "/tabla", "/historial",
+                  "/background"],
+        "limite_tabla": LIMITE_TABLA,
     }
 
 
@@ -112,7 +149,7 @@ def analizar_circuito(request: CircuitoRequest):
     """
     try:
         if circuito_vacio(request.codigo):
-            return {"exito": False, "errores": ["Error léxico línea 1: el circuito está vacío"]}
+            return respuesta_vacia()
 
         codigo = request.codigo
         fondo = schematico.normalizar_color(request.fondo) or fondo_actual()["fondo"]
@@ -123,10 +160,8 @@ def analizar_circuito(request: CircuitoRequest):
         resultado["fondo"] = fondo
         return resultado
 
-    except SyntaxError as error:
-        return {"exito": False, "errores": [str(error)]}
     except Exception as error:
-        return {"exito": False, "errores": [f"Error inesperado: {error}"]}
+        return respuesta_error_interno(error)
 
 
 @app.post("/validar")
@@ -140,7 +175,7 @@ def validar_circuito(request: CircuitoRequest):
     """
     try:
         if circuito_vacio(request.codigo):
-            return {"exito": False, "errores": ["Error léxico línea 1: el circuito está vacío"]}
+            return respuesta_vacia()
 
         gestor = GestorReglas()
         resultado = gestor.analizar(request.codigo, imprimir=False,
@@ -154,17 +189,52 @@ def validar_circuito(request: CircuitoRequest):
             "tokens": resultado["tokens"],
             "ast": resultado["ast"],
             "tabla_simbolos": resultado["tabla_simbolos"],
+            "diagnosticos": resultado["diagnosticos"],
         }
 
-    except SyntaxError as error:
-        return {"exito": False, "errores": [str(error)]}
     except Exception as error:
-        return {"exito": False, "errores": [f"Error inesperado: {error}"]}
+        return respuesta_error_interno(error)
+
+
+@app.post("/tabla")
+def tabla_por_bloques(request: TablaRequest):
+    """Devuelve solo las filas [desde, desde + cantidad) de la tabla de verdad.
+
+    Cada fila se calcula a partir de su índice binario, así que la tabla
+    completa nunca se construye en memoria: sirve para circuitos con más
+    entradas que LIMITE_TABLA (la web pide bloques al desplazarse y la
+    exportación CSV los va concatenando).
+    """
+    try:
+        if circuito_vacio(request.codigo):
+            return respuesta_vacia()
+
+        gestor = GestorReglas()
+        semantico, resultado = gestor.preparar_evaluacion(request.codigo)
+        if semantico is None:
+            return {"exito": False, "errores": resultado["errores"],
+                    "diagnosticos": resultado["diagnosticos"]}
+
+        total = 2 ** len(semantico.entradas)
+        desde = min(request.desde, total)
+        cantidad = min(request.cantidad, MAXIMO_FILAS_POR_PETICION, total - desde)
+        senales = semantico.senales_tabla()
+        return {
+            "exito": True,
+            "señales": senales,
+            "filas": semantico.filas_tabla(desde, cantidad, senales),
+            "desde": desde,
+            "cantidad": cantidad,
+            "filas_totales": total,
+        }
+
+    except Exception as error:
+        return respuesta_error_interno(error)
 
 
 @app.get("/historial")
 def obtener_historial():
-    """Historial de análisis (el mismo que muestra HISTORIAL en la consola)."""
+    """Historial de análisis de la interfaz web (en memoria de este servidor)."""
     analisis = []
     for indice, registro in enumerate(ALMACENAMIENTO.obtener_historial()):
         entrada = registro.get("entrada", "")

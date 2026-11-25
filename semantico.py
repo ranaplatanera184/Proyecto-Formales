@@ -16,7 +16,11 @@
 
 import os
 import struct
-from itertools import product
+from collections import deque
+
+import graphviz
+
+from evaluador import Programa
 
 
 class AnalizadorSemantico:
@@ -36,6 +40,10 @@ class AnalizadorSemantico:
             self.entradas_min[regla["nombre"]] = regla["entradas_min"]
             self.entradas_max[regla["nombre"]] = regla["entradas_max"]
             self.operacion[regla["nombre"]] = regla["operacion"]
+
+        # Cachés de un análisis: el orden topológico y el circuito compilado.
+        self._orden = None
+        self._programa = None
 
     # ------------------------------------------------------------------
     # Comprobaciones semánticas
@@ -235,11 +243,22 @@ class AnalizadorSemantico:
     # Orden topológico
     # ------------------------------------------------------------------
     def orden_topologico(self):
-        """Orden de evaluación de las compuertas (antes las que no dependen de ninguna otra)."""
+        """Orden de evaluación de las compuertas (antes las que no dependen de ninguna otra).
+
+        Se calcula una sola vez por análisis (algoritmo de Kahn con una cola
+        `deque`) y se reutiliza en la tabla de verdad, las expresiones y el
+        paso a paso. Antes se recalculaba en cada fila de la tabla, con
+        `list.pop(0)`, y un circuito de 20 entradas tardaba minutos.
+        """
+        if self._orden is None:
+            self._orden = self._calcular_orden()
+        return self._orden
+
+    def _calcular_orden(self):
         n = len(self.compuertas)
         mapa = {}
         for i, compuerta in enumerate(self.compuertas):
-            mapa[compuerta["salida"]] = i
+            mapa.setdefault(compuerta["salida"], i)
 
         # dependencias: succ[p] contiene las compuertas que usan la salida de p.
         succ = [[] for _ in range(n)]
@@ -252,10 +271,10 @@ class AnalizadorSemantico:
                     indeg[i] += 1
 
         # Kahn: primero las de grado de entrada 0 (orden estable por índice).
-        cola = [i for i in range(n) if indeg[i] == 0]
+        cola = deque(i for i in range(n) if indeg[i] == 0)
         orden = []
         while cola:
-            u = cola.pop(0)
+            u = cola.popleft()
             orden.append(self.compuertas[u])
             for v in succ[u]:
                 indeg[v] -= 1
@@ -267,46 +286,44 @@ class AnalizadorSemantico:
     # ------------------------------------------------------------------
     # Evaluación
     # ------------------------------------------------------------------
-    def _aplicar_operacion(self, nombre, valores):
-        operacion = self.operacion.get(nombre, "and")
-        if operacion == "and":
-            return all(valores)
-        if operacion == "or":
-            return any(valores)
-        if operacion == "not":
-            return not valores[0]
-        if operacion == "xor":
-            return sum(valores) % 2 == 1
-        if operacion == "nand":
-            return not all(valores)
-        if operacion == "nor":
-            return not any(valores)
-        if operacion == "xnor":
-            return sum(valores) % 2 == 0
-        return False
+    def programa(self):
+        """El circuito compilado para el evaluador por bloques (una vez)."""
+        if self._programa is None:
+            self._programa = Programa(self.entradas, [
+                (self.operacion.get(c["compuerta"], "and"), c["entradas"], c["salida"])
+                for c in self.orden_topologico()
+            ])
+        return self._programa
 
     def _evaluar(self, valores_entrada):
         """Dado un diccionario de valores de entrada, devuelve los valores de
         todas las señales (entradas + salidas de compuertas)."""
-        valores = dict(valores_entrada)
-        for compuerta in self.orden_topologico():
-            argumentos = [valores[senal] for senal in compuerta["entradas"]]
-            valores[compuerta["salida"]] = self._aplicar_operacion(
-                compuerta["compuerta"], argumentos)
+        valores = self.programa().evaluar(valores_entrada)
+        valores.pop("0", None)
+        valores.pop("1", None)
         return valores
+
+    def senales_tabla(self):
+        """Columnas de la tabla: entradas y luego salidas en orden de definición."""
+        return list(self.entradas) + [c["salida"] for c in self.compuertas]
+
+    def filas_tabla(self, desde=0, cantidad=None, senales=None):
+        """Solo las filas [desde, desde + cantidad) de la tabla de verdad.
+
+        Cada fila se calcula a partir de su índice binario, así que pedir las
+        filas 500.000 a 500.100 de un circuito de 20 entradas no construye
+        nada más que esas 100 filas.
+        """
+        programa = self.programa()
+        if cantidad is None:
+            cantidad = programa.filas_totales - desde
+        return programa.filas(desde, cantidad, senales or self.senales_tabla())
 
     def tabla_verdad(self):
         """Tabla de verdad completa (2^n combinaciones). Columnas: entradas
         primero y luego las salidas en el orden en que se definen."""
-        senales = list(self.entradas) + [c["salida"] for c in self.compuertas]
-
-        filas = []
-        for combinacion in product([0, 1], repeat=len(self.entradas)):
-            valores_entrada = dict(zip(self.entradas, [bool(x) for x in combinacion]))
-            valores = self._evaluar(valores_entrada)
-            filas.append([int(valores[senal]) for senal in senales])
-
-        return {"señales": senales, "filas": filas}
+        senales = self.senales_tabla()
+        return {"señales": senales, "filas": self.filas_tabla(0, None, senales)}
 
     # ------------------------------------------------------------------
     # Expresiones booleanas
@@ -348,7 +365,6 @@ class AnalizadorSemantico:
 # ---------------------------------------------------------------------------
 # Refactorizado en funciones pequeñas: cada una dibuja una parte del grafo.
 # ---------------------------------------------------------------------------
-import graphviz
 
 RUTA_ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 

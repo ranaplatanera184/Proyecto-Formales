@@ -743,9 +743,9 @@ main {
 .pestanas {
   display: flex;
   flex: 0 0 auto;
-  gap: 5px;
-  overflow-x: auto;
-  padding: 7px;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 5px;
   border: 1px solid rgba(66, 100, 68, .1);
   border-radius: 14px;
   background: rgba(239, 245, 235, .76);
@@ -755,10 +755,11 @@ main {
 .pestana {
   display: inline-flex;
   min-height: 37px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
+  gap: 5px;
+  padding: 7px 7px;
   border-color: transparent;
   border-radius: 9px;
   color: #718073;
@@ -776,11 +777,108 @@ main {
   box-shadow: none;
 }
 
-.pestana.activa {
-  border-color: rgba(70, 120, 80, .16);
-  color: #376444;
-  background: #fffefa;
-  box-shadow: 0 3px 8px rgba(42, 75, 47, .08);
+.pestana.activa,
+.pestana[aria-selected="true"] {
+  border-color: rgba(70, 120, 80, .22);
+  color: var(--acento);
+  background: var(--panel-solido);
+  box-shadow: inset 0 -2px 0 var(--acento), 0 3px 8px rgba(42, 75, 47, .08);
+  font-weight: 720;
+}
+
+.pestana .num {
+  display: inline-grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--tenue);
+  background: rgba(75, 128, 88, .1);
+  font-size: .68rem;
+  font-weight: 760;
+}
+
+.pestana[aria-selected="true"] .num {
+  color: var(--acento-texto);
+  background: var(--acento);
+}
+
+.subpestanas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--panel-borde);
+}
+
+.subpestana {
+  min-height: 34px;
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 9px 9px 0 0;
+  color: var(--tenue);
+  background: transparent;
+  box-shadow: none;
+  font-size: .8rem;
+  font-weight: 640;
+}
+
+.subpestana:hover:not(:disabled) {
+  color: var(--acento);
+  background: rgba(75, 128, 88, .06);
+  box-shadow: none;
+  transform: none;
+}
+
+.subpestana[aria-selected="true"] {
+  color: var(--acento);
+  box-shadow: inset 0 -2px 0 var(--acento);
+  font-weight: 720;
+}
+
+.subpanel {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.subpanel.activa {
+  display: flex;
+}
+
+.casilla {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px !important;
+  align-self: center;
+  cursor: pointer;
+}
+
+.casilla input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--acento);
+}
+
+.aviso-tabla {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 15px;
+  border: 1px solid rgba(194, 154, 79, .35);
+  border-radius: 13px;
+  background: rgba(250, 245, 226, .7);
+}
+
+.aviso-tabla p {
+  margin: 0;
+  color: var(--texto);
+  font-size: .85rem;
 }
 
 .badge {
@@ -798,6 +896,16 @@ main {
 
 .badge:not(:empty) {
   line-height: 1;
+}
+
+.badge.con-errores {
+  color: #fff;
+  background: var(--error);
+}
+
+.badge.con-advertencias {
+  color: #5d4512;
+  background: #ecd9a6;
 }
 
 .cuerpo-paneles {
@@ -925,29 +1033,101 @@ tbody tr:last-child td {
   line-height: 1.7;
 }
 
-.lista-errores-ui {
+.lista-diagnosticos {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   margin: 0;
-  padding-left: 22px;
+  padding: 0;
+  list-style: none;
 }
 
-.lista-errores-ui li {
-  padding: 8px 11px;
+.diagnostico {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 13px;
+  border: 1px solid rgba(185, 77, 72, .18);
   border-left: 3px solid var(--error);
-  border-radius: 0 9px 9px 0;
+  border-radius: 0 11px 11px 0;
   color: var(--texto);
-  background: rgba(255, 239, 235, .66);
+  background: rgba(255, 239, 235, .6);
+}
+
+.diagnostico[role="button"] {
   cursor: pointer;
 }
 
-.lista-errores-ui li:hover {
+.diagnostico[role="button"]:hover {
   background: rgba(255, 231, 224, .9);
 }
 
-#listaAdvertencias li {
+.diagnostico.es-advertencia {
+  border-color: rgba(194, 154, 79, .3);
   border-left-color: #c29a4f;
   background: rgba(250, 245, 226, .7);
+}
+
+.diagnostico.es-advertencia[role="button"]:hover {
+  background: rgba(247, 238, 207, .95);
+}
+
+.chip-posicion {
+  flex: 0 0 auto;
+  min-width: 74px;
+  padding: 3px 8px;
+  border: 1px solid var(--panel-borde);
+  border-radius: 999px;
+  color: var(--texto);
+  background: var(--panel-solido);
+  font-size: .74rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.diagnostico-cuerpo {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.diagnostico-fase {
+  color: var(--tenue);
+  font-size: .68rem;
+  font-weight: 760;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.diagnostico-mensaje,
+.diagnostico-sugerencia {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.diagnostico-mensaje {
+  font-size: .88rem;
+}
+
+.diagnostico-sugerencia {
+  color: var(--acento);
+  font-size: .82rem;
+}
+
+.diagnostico-sugerencia::before {
+  content: "Sugerencia: ";
+  font-weight: 700;
+}
+
+.cuenta {
+  color: var(--tenue);
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+.ok-panel {
+  min-height: 110px;
+  color: var(--ok);
+  font-weight: 650;
 }
 
 .visor {
@@ -1313,10 +1493,16 @@ tbody tr:last-child td {
     padding-left: 16px;
   }
 
+  .pestanas {
+    gap: 2px;
+    padding: 5px;
+  }
+
   .pestana {
-    padding-right: 9px;
-    padding-left: 9px;
-    font-size: .74rem;
+    gap: 5px;
+    padding-right: 6px;
+    padding-left: 6px;
+    font-size: .75rem;
   }
 }
 
@@ -1518,8 +1704,14 @@ tbody tr:last-child td {
 
   .pestana {
     min-height: 34px;
+    flex: 1 1 30%;
     padding: 6px 8px;
     font-size: .72rem;
+  }
+
+  .diagnostico {
+    flex-direction: column;
+    gap: 6px;
   }
 
   .cuerpo-paneles {
@@ -1730,6 +1922,35 @@ tbody tr:last-child td {
 :root[data-tema="oscuro"] .chip strong,
 :root[data-tema="oscuro"] .resultado-simulacion {
   color: #a7d0a6;
+}
+
+:root[data-tema="oscuro"] .diagnostico {
+  border-color: rgba(255, 142, 131, .3);
+  border-left-color: var(--error);
+  background: rgba(120, 40, 36, .25);
+}
+
+:root[data-tema="oscuro"] .diagnostico[role="button"]:hover {
+  background: rgba(120, 40, 36, .4);
+}
+
+:root[data-tema="oscuro"] .diagnostico.es-advertencia,
+:root[data-tema="oscuro"] .aviso-tabla {
+  border-color: rgba(226, 190, 110, .3);
+  border-left-color: #d9b45f;
+  background: rgba(110, 86, 30, .25);
+}
+
+:root[data-tema="oscuro"] .diagnostico.es-advertencia[role="button"]:hover {
+  background: rgba(110, 86, 30, .4);
+}
+
+:root[data-tema="oscuro"] .pestana .num {
+  background: rgba(255, 255, 255, .1);
+}
+
+:root[data-tema="oscuro"] .pestana {
+  color: #b5c3b6;
 }
 
 @media (prefers-reduced-motion: reduce) {

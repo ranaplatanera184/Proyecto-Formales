@@ -22,6 +22,8 @@ const EJEMPLO = [
 const COLOR_INICIAL = "#FFFFFF";
 const CLAVE_FONDO = "jace.fondo";
 const FILAS_POR_BLOQUE = 32;      // la tabla de verdad se dibuja de 32 en 32
+const FILAS_POR_PETICION = 256;   // filas que se piden a /tabla en cada bloque
+const FILAS_POR_PETICION_CSV = 4096;
 const ESPERA_VALIDACION = 600;    // debounce para validar mientras se escribe
 const INTERVALO_PASOS_MS = 700;
 const ZOOM_MINIMO = 0.2;
@@ -33,10 +35,14 @@ const ZOOM_MAXIMO = 6;
 const estado = {
   fondo: COLOR_INICIAL,
   resultado: null,            // última respuesta de /analizar
-  pestanaActiva: "diagrama",  // se recuerda al volver a analizar
+  pestanaActiva: "resultados",  // se recuerda al volver a analizar
+  subActiva: "diagrama",         // subpestaña de «6 Resultados»
   zoom: { k: 1, tx: 0, ty: 0 },
   autoAjustar: true,          // mientras sea true se reajusta al redimensionar
-  tabla: { senales: [], filas: [], senalFiltro: "", valorFiltro: "", mostradas: 0 },
+  // `remota` = la tabla no vino en /analizar (demasiadas entradas) y se pide
+  // por bloques a /tabla; `totales` es el número real de filas.
+  tabla: { senales: [], filas: [], senalFiltro: "", valorFiltro: "", mostradas: 0,
+           remota: false, totales: 0, cargando: false, codigo: "" },
   tokens: [],
   ast: null,
   tablaSimbolos: [],
@@ -248,10 +254,7 @@ async function validar() {
     pintarTokens(estado.tokens);
     pintarAst();
     pintarTablaSimbolos();
-    pintarErrores(datos.errores || [], {
-      automatico: true,
-      advertencias: datos.advertencias || []
-    });
+    pintarDiagnosticos(diagnosticosDe(datos), { automatico: true });
   } catch (error) {
     if (error.name !== "AbortError") {
       avisar(`No se pudo validar: ${error}`, true);
@@ -262,19 +265,29 @@ async function validar() {
 // El compilador analiza el texto tal cual y conserva los comentarios y las
 // líneas vacías, así que los números de línea que devuelve ya son los del
 // editor: no hay que aplicar ningún desplazamiento.
-function saltarALinea(linea) {
+function saltarALinea(linea, columna) {
   const editor = $("#codigo");
   const lineas = editor.value.split("\n");
   if (!linea || linea < 1 || linea > lineas.length) return;
 
   let inicio = 0;
   for (let i = 0; i < linea - 1; i++) inicio += lineas[i].length + 1;
-  const fin = inicio + lineas[linea - 1].length;
+  const texto = lineas[linea - 1];
+  let desde = inicio;
+  let hasta = inicio + texto.length;
+
+  // Con columna se selecciona exactamente la palabra (o el símbolo) señalado.
+  if (columna && columna >= 1 && columna <= texto.length + 1) {
+    const resto = texto.slice(columna - 1);
+    const palabra = /^(->|[^\s\[\],#]+|\S)/.exec(resto);
+    desde = inicio + columna - 1;
+    hasta = desde + (palabra ? palabra[0].length : 0);
+  }
 
   editor.focus();
-  editor.setSelectionRange(inicio, fin);
-  // Altura de línea aproximada (14 px de fuente * 1.6) para centrar la línea.
-  const alturaLinea = 22;
+  editor.setSelectionRange(desde, hasta);
+  const estilo = getComputedStyle(editor);
+  const alturaLinea = parseFloat(estilo.lineHeight) || 22;
   editor.scrollTop = Math.max(0, (linea - 3) * alturaLinea);
 }
 
@@ -319,17 +332,22 @@ function mostrarResultado(datos, segundos) {
 
   const tabla = datos.tabla_verdad || {};
   const filas = tabla.filas || [];
+  const omitida = datos.tabla_omitida || null;
 
   $("#resumen").classList.remove("oculto");
   $("#datoCompuertas").textContent = (datos.compuertas || []).length;
-  $("#datoFilas").textContent = filas.length;
+  $("#datoFilas").textContent = (omitida ? omitida.filas_totales : filas.length)
+    .toLocaleString("es");
   $("#datoColumnas").textContent = (tabla.señales || []).length;
   $("#datoTiempo").textContent = segundos.toFixed(1);
 
-  const errores = datos.errores || [];
-  pintarErrores(errores, { advertencias: datos.advertencias || [] });
+  const diagnosticos = diagnosticosDe(datos);
+  const errores = diagnosticos.filter((d) => d.severidad === "error");
+  pintarDiagnosticos(diagnosticos);
   pintarDiagrama(datos.diagrama_svg || "");
-  pintarTablaVerdad(tabla);
+  pintarTablaVerdad(tabla, omitida, datos.exito ? $("#codigo").value : "");
+  pintarIntermedio();
+  pintarVerilog();
   pintarExpresiones();
   pintarTokens(estado.tokens);
   pintarAst();
@@ -343,10 +361,10 @@ function mostrarResultado(datos, segundos) {
   if (datos.exito) {
     avisar(`Análisis exitoso en ${segundos.toFixed(1)} s.`, false);
     if (estado.pestanaActiva === "errores" && errores.length === 0) {
-      activarPestana("diagrama");
+      activarPestana("resultados");
     }
   } else {
-    avisar(`${errores.length} error(es). Revisa la pestaña «Errores».`, true);
+    avisar(`${errores.length} error(es). Revisa la pestaña «4 Diagnósticos».`, true);
     if (!hayDiagrama) {
       $("#diagramaVacio").textContent = "Sin diagrama: el circuito tiene errores.";
     }
@@ -365,10 +383,7 @@ function prepararDepurador(datos) {
     (datos.entradas || []).map((senal) => [senal, 0])
   );
 
-  const disponible = Boolean(
-    datos.exito && datos.tabla_verdad?.filas?.length &&
-    datos.orden_topologico?.length
-  );
+  const disponible = Boolean(datos.exito && datos.orden_topologico?.length);
   $("#simuladorPasos").classList.toggle("oculto", !disponible);
   $("#pasosVacio").classList.toggle("oculto", disponible);
 
@@ -415,21 +430,33 @@ function pintarEntradasSimulacion() {
   }
 }
 
+// Operación de cada compuerta sobre valores 0/1 (la misma semántica que el
+// compilador: XOR/XNOR con N entradas son la paridad impar/par).
+const OPERACIONES = {
+  AND: (v) => v.every(Boolean),
+  OR: (v) => v.some(Boolean),
+  NOT: (v) => !v[0],
+  XOR: (v) => v.filter(Boolean).length % 2 === 1,
+  NAND: (v) => !v.every(Boolean),
+  NOR: (v) => !v.some(Boolean),
+  XNOR: (v) => v.filter(Boolean).length % 2 === 0,
+};
+
+// Evalúa el circuito en orden topológico con los valores que eligió el
+// usuario. Antes se buscaba la fila dentro de la tabla de verdad completa,
+// que ya no viaja en la respuesta cuando el circuito tiene muchas entradas.
 function valoresDeCombinacionActual() {
-  const tabla = estado.resultado?.tabla_verdad;
-  if (!tabla?.señales || !tabla?.filas) return null;
-
-  const entradas = estado.resultado.entradas || [];
-  const indices = entradas.map((senal) => tabla.señales.indexOf(senal));
-  if (indices.some((indice) => indice < 0)) return null;
-
-  const fila = tabla.filas.find((candidata) =>
-    indices.every((indice, posicion) =>
-      candidata[indice] === estado.depurador.valoresEntrada[entradas[posicion]])
-  );
-  if (!fila) return null;
-
-  return Object.fromEntries(tabla.señales.map((senal, indice) => [senal, fila[indice]]));
+  const resultado = estado.resultado;
+  if (!resultado) return null;
+  const valores = { "0": 0, "1": 1, ...estado.depurador.valoresEntrada };
+  for (const compuerta of resultado.orden_topologico || []) {
+    const operacion = OPERACIONES[compuerta.compuerta];
+    if (!operacion) return null;
+    const argumentos = compuerta.entradas.map((senal) => valores[senal]);
+    if (argumentos.some((valor) => valor === undefined)) return null;
+    valores[compuerta.salida] = operacion(argumentos) ? 1 : 0;
+  }
+  return valores;
 }
 
 function pasosDeCombinacion(valores) {
@@ -473,11 +500,7 @@ function pintarDepurador() {
       .map(({ senal, valor }) => `${senal}=${valor}`)
       .join(", ")}] → ${pasoActual.salida} = ${pasoActual.valor}`;
 
-  const compuertas = estado.resultado.compuertas || [];
-  const usadas = new Set(compuertas.flatMap((compuerta) => compuerta.entradas));
-  const salidas = compuertas
-    .map((compuerta) => compuerta.salida)
-    .filter((senal) => !usadas.has(senal));
+  const salidas = salidasFinales();
   $("#resultadoSimulacion").textContent =
     depurador.indice === pasos.length - 1
       ? `Salidas: ${salidas.map((senal) => `${senal} = ${
@@ -571,21 +594,67 @@ function alternarReproduccion() {
 /* ======================================================================== */
 /* 6. Pestañas del panel de resultados                                       */
 /* ======================================================================== */
-function activarPestana(nombre) {
+function activarPestana(nombre, opciones = {}) {
   estado.pestanaActiva = nombre;
   document.querySelectorAll(".pestana").forEach((pestana) => {
-    pestana.classList.toggle("activa", pestana.dataset.panel === nombre);
+    const activa = pestana.dataset.panel === nombre;
+    pestana.classList.toggle("activa", activa);
+    pestana.setAttribute("aria-selected", String(activa));
+    pestana.tabIndex = activa ? 0 : -1;
+    if (activa && opciones.foco) pestana.focus();
   });
   document.querySelectorAll(".panel-contenido").forEach((panel) => {
+    panel.classList.toggle("activa", panel.id === `panel-${nombre}`);
+  });
+  if (nombre === "resultados" && estado.subActiva === "diagrama") {
+    requestAnimationFrame(ajustarDiagrama);
+  }
+}
+
+function activarSubpestana(nombre, opciones = {}) {
+  estado.subActiva = nombre;
+  document.querySelectorAll(".subpestana").forEach((pestana) => {
+    const activa = pestana.dataset.sub === nombre;
+    pestana.classList.toggle("activa", activa);
+    pestana.setAttribute("aria-selected", String(activa));
+    pestana.tabIndex = activa ? 0 : -1;
+    if (activa && opciones.foco) pestana.focus();
+  });
+  document.querySelectorAll(".subpanel").forEach((panel) => {
     panel.classList.toggle("activa", panel.id === `panel-${nombre}`);
   });
   if (nombre === "diagrama") requestAnimationFrame(ajustarDiagrama);
 }
 
+// Flechas izquierda/derecha, Inicio y Fin para moverse entre pestañas (patrón
+// de pestañas accesibles de WAI-ARIA).
+function navegarConTeclado(evento, selector, clave, activar) {
+  const pestanas = [...document.querySelectorAll(selector)];
+  const actual = pestanas.indexOf(evento.target);
+  if (actual < 0) return;
+  let destino = null;
+  if (evento.key === "ArrowRight") destino = (actual + 1) % pestanas.length;
+  else if (evento.key === "ArrowLeft") destino = (actual - 1 + pestanas.length) % pestanas.length;
+  else if (evento.key === "Home") destino = 0;
+  else if (evento.key === "End") destino = pestanas.length - 1;
+  if (destino === null) return;
+  evento.preventDefault();
+  activar(pestanas[destino].dataset[clave], { foco: true });
+}
+
 function actualizarPestanaErrores(cantidad, advertencias = 0) {
-  const pestana = document.querySelector('.pestana[data-panel="errores"]');
-  $("#badgeErrores").textContent = cantidad + advertencias;
-  pestana.classList.toggle("oculto", cantidad === 0 && advertencias === 0);
+  // La pestaña 4 nunca desaparece: muestra la cuenta o un ✔ si no hay nada.
+  const badge = $("#badgeErrores");
+  badge.classList.toggle("con-errores", cantidad > 0);
+  badge.classList.toggle("con-advertencias", cantidad === 0 && advertencias > 0);
+  if (cantidad === 0 && advertencias === 0) {
+    badge.textContent = "✔";
+    badge.setAttribute("aria-label", "sin diagnósticos");
+  } else {
+    badge.textContent = String(cantidad + advertencias);
+    badge.setAttribute("aria-label",
+      `${cantidad} error(es) y ${advertencias} advertencia(s)`);
+  }
 }
 
 /* ======================================================================== */
@@ -746,11 +815,28 @@ function filasFiltradas() {
   return filas.filter((fila) => String(fila[columna]) === valorFiltro);
 }
 
-function pintarTablaVerdad(tablaVerdad) {
+function pintarTablaVerdad(tablaVerdad, omitida = null, codigo = "") {
   const senales = (tablaVerdad && tablaVerdad.señales) || [];
   estado.tabla.senales = senales;
   estado.tabla.filas = (tablaVerdad && tablaVerdad.filas) || [];
   estado.tabla.mostradas = FILAS_POR_BLOQUE;
+  estado.tabla.remota = Boolean(omitida);
+  estado.tabla.totales = omitida ? omitida.filas_totales : estado.tabla.filas.length;
+  estado.tabla.codigo = codigo;
+  estado.tabla.cargando = false;
+
+  // Tabla omitida: se avisa y se ofrece generarla por bloques.
+  $("#avisoTabla").classList.toggle("oculto", !omitida);
+  if (omitida) {
+    $("#motivoTabla").textContent = `${omitida.motivo}. Se calcula por bloques, ` +
+      "solo las filas que veas.";
+    $("#generarTabla").textContent =
+      `Generar tabla (${omitida.filas_totales.toLocaleString("es")} filas)`;
+    $("#generarTabla").classList.remove("oculto");
+    $("#tablaScroll").classList.add("oculto");
+  } else {
+    $("#tablaScroll").classList.remove("oculto");
+  }
 
   // Sugerencias con los nombres reales del circuito: evita escribir a ciegas.
   const sugerencias = $("#listaSenales");
@@ -768,6 +854,40 @@ function pintarTablaVerdad(tablaVerdad) {
   estado.tabla.senalFiltro = filtroSalida.value.trim() || ultima;
 
   pintarTabla();
+}
+
+// Pide a /tabla el siguiente bloque de filas (solo esas filas se calculan).
+async function cargarBloqueRemoto() {
+  const tabla = estado.tabla;
+  if (!tabla.remota || tabla.cargando || tabla.filas.length >= tabla.totales) return;
+  tabla.cargando = true;
+  $("#infoFilas").textContent = "Calculando filas...";
+  try {
+    const datos = await pedirFilas(tabla.codigo, tabla.filas.length, FILAS_POR_PETICION);
+    if (!datos.exito) throw new Error((datos.errores || ["sin detalle"]).join(" "));
+    tabla.filas.push(...datos.filas);
+    tabla.mostradas = tabla.filas.length;
+  } catch (error) {
+    avisar(`No se pudo calcular la tabla: ${error.message || error}`, true);
+  } finally {
+    tabla.cargando = false;
+    pintarTabla();
+  }
+}
+
+async function pedirFilas(codigo, desde, cantidad) {
+  const respuesta = await fetch("/tabla", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codigo, desde, cantidad })
+  });
+  return respuesta.json();
+}
+
+async function generarTablaRemota() {
+  $("#generarTabla").classList.add("oculto");
+  $("#tablaScroll").classList.remove("oculto");
+  await cargarBloqueRemoto();
 }
 
 function pintarTabla() {
@@ -803,8 +923,15 @@ function pintarTabla() {
   }
   tabla.appendChild(cuerpo);
 
-  const descripcion = `Mostrando ${visibles} de ${total} fila(s)` +
-    (estado.tabla.valorFiltro ? ` con salida = ${estado.tabla.valorFiltro}` : "");
+  const remota = estado.tabla.remota;
+  const totales = estado.tabla.totales.toLocaleString("es");
+  const descripcion = remota
+    ? `Mostrando ${visibles.toLocaleString("es")} fila(s) de ${totales}` +
+      (estado.tabla.valorFiltro
+        ? ` (filtro aplicado a las ${estado.tabla.filas.length.toLocaleString("es")} calculadas)`
+        : "")
+    : `Mostrando ${visibles} de ${total} fila(s)` +
+      (estado.tabla.valorFiltro ? ` con salida = ${estado.tabla.valorFiltro}` : "");
   const info = $("#infoFilas");
   info.textContent = descripcion;
   info.classList.remove("error");
@@ -816,8 +943,12 @@ function pintarTabla() {
   }
 
   const boton = $("#cargarMas");
-  boton.classList.toggle("oculto", visibles >= total);
-  boton.textContent = `Cargar más filas (${FILAS_POR_BLOQUE})`;
+  const quedanRemotas = remota && estado.tabla.filas.length < estado.tabla.totales &&
+    !$("#tablaScroll").classList.contains("oculto");
+  boton.classList.toggle("oculto", !(visibles < total || quedanRemotas));
+  boton.textContent = remota
+    ? `Calcular ${FILAS_POR_PETICION} filas más`
+    : `Cargar más filas (${FILAS_POR_BLOQUE})`;
 }
 
 function pintarTokens(tokens) {
@@ -859,9 +990,61 @@ function pintarTablaTokens() {
 function pintarAst() {
   const arbol = $("#arbolSintactico");
   const disponible = Boolean(estado.ast);
-  arbol.textContent = disponible ? JSON.stringify(estado.ast, null, 2) : "";
+  arbol.replaceChildren();
+  if (disponible) {
+    const pre = document.createElement("pre");
+    pre.className = "codigo-expresion mono";
+    pre.textContent = JSON.stringify(estado.ast, null, 2);
+    arbol.appendChild(pre);
+  }
   arbol.classList.toggle("oculto", !disponible);
   $("#arbolVacio").classList.toggle("oculto", disponible);
+}
+
+// Salidas del circuito: las declaradas con SALIDA o, si no hay, las señales
+// que no alimentan a ninguna compuerta.
+function salidasFinales() {
+  const resultado = estado.resultado || {};
+  if (resultado.salidas && resultado.salidas.length) return resultado.salidas;
+  const compuertas = resultado.compuertas || [];
+  const usadas = new Set(compuertas.flatMap((compuerta) => compuerta.entradas));
+  return compuertas.map((c) => c.salida).filter((senal) => !usadas.has(senal));
+}
+
+/* Pestaña 5: código intermedio (orden de evaluación de las compuertas). */
+function pintarIntermedio() {
+  const contenedor = $("#contenidoIntermedio");
+  const orden = estado.resultado?.exito ? estado.resultado.orden_topologico || [] : [];
+  contenedor.replaceChildren();
+  $("#intermedioVacio").classList.toggle("oculto", orden.length > 0);
+  if (!orden.length) return;
+
+  const titulo = document.createElement("h3");
+  titulo.textContent = "Orden de evaluación (código de tres direcciones)";
+  const pre = document.createElement("pre");
+  pre.className = "codigo-expresion mono";
+  const ancho = Math.max(...orden.map((c) => c.salida.length));
+  pre.textContent = orden.map((c) =>
+    `${c.salida.padEnd(ancho)} = ${c.compuerta} ${c.entradas.join(", ")}` +
+    `    ; línea ${c.linea}`).join("\n");
+  contenedor.append(titulo, pre);
+}
+
+/* Subpestaña Verilog. */
+function pintarVerilog() {
+  const codigo = estado.resultado?.exito ? estado.resultado.verilog : null;
+  const pre = $("#codigoVerilog");
+  const conTestbench = $("#verilogTestbench").checked;
+  const texto = codigo
+    ? (conTestbench && codigo.testbench ? `${codigo.modulo}\n${codigo.testbench}` : codigo.modulo)
+    : "";
+  pre.textContent = texto;
+  pre.classList.toggle("oculto", !texto);
+  $("#verilogVacio").classList.toggle("oculto", Boolean(texto));
+  $("#copiarVerilog").disabled = !texto;
+  $("#verilogTestbench").disabled = !(codigo && codigo.testbench);
+  $("#infoVerilog").textContent = codigo && !codigo.testbench && estado.resultado?.exito
+    ? (codigo.aviso_testbench || "") : "";
 }
 
 function pintarTablaSimbolos() {
@@ -983,12 +1166,15 @@ function textoParaCopiar() {
 }
 
 async function copiarExpresiones() {
-  const texto = textoParaCopiar();
+  await copiarTexto(textoParaCopiar(), "Expresiones copiadas al portapapeles.");
+}
+
+async function copiarTexto(texto, mensaje) {
   if (!texto) return;
 
   try {
     await navigator.clipboard.writeText(texto);
-    avisar("Expresiones copiadas al portapapeles.", false);
+    avisar(mensaje, false);
   } catch {
     // Sin permiso de portapapeles (contexto no seguro) se usa el copia de
     // siempre con un textarea oculto.
@@ -1001,84 +1187,97 @@ async function copiarExpresiones() {
     auxiliar.select();
     const copiado = document.execCommand("copy");
     auxiliar.remove();
-    avisar(copiado
-      ? "Expresiones copiadas al portapapeles."
-      : "No se pudo copiar al portapapeles.", copiado);
+    avisar(copiado ? mensaje : "No se pudo copiar al portapapeles.", !copiado);
   }
 }
 
 /* ======================================================================== */
 /* 10. Errores (con salto a la línea del editor)                             */
 /* ======================================================================== */
-function analizarError(mensaje) {
-  const texto = String(mensaje);
-  const coincidencia = /^(Error|Advertencia)(?:\s+(\S+))?\s+línea\s+(\d+)(?:[^:]*columna\s+(\d+))?:\s*([\s\S]*)$/i.exec(texto);
-  if (coincidencia) {
-    return {
-      tipo: coincidencia[2] || coincidencia[1],
-      linea: parseInt(coincidencia[3], 10),
-      columna: coincidencia[4] ? parseInt(coincidencia[4], 10) : null,
-      mensaje: coincidencia[5]
-    };
-  }
-  return { tipo: "Error", linea: null, columna: null, mensaje: texto };
+const NOMBRE_FASE = {
+  "léxico": "Léxico",
+  "sintáctico": "Sintáctico",
+  "semántico": "Semántico",
+  "interno": "Interno",
+};
+
+// Diagnósticos estructurados de la respuesta. Una respuesta antigua (sin el
+// campo) se interpreta a partir del texto «Error <fase> línea L, columna C».
+function diagnosticosDe(datos) {
+  if (Array.isArray(datos.diagnosticos)) return datos.diagnosticos;
+  const convertir = (texto, severidad) => {
+    const m = /^(Error|Advertencia)(?:\s+(léxico|sintáctico|semántico))?(?:\s+línea\s+(\d+)(?:,\s*columna\s+(\d+))?)?:\s*([\s\S]*)$/.exec(String(texto));
+    return m
+      ? { fase: m[2] || "semántico", severidad, linea: m[3] ? +m[3] : null,
+          columna: m[4] ? +m[4] : null, mensaje: m[5], sugerencia: null }
+      : { fase: "interno", severidad, linea: null, columna: null,
+          mensaje: String(texto), sugerencia: null };
+  };
+  return [
+    ...(datos.errores || []).map((t) => convertir(t, "error")),
+    ...(datos.advertencias || []).map((t) => convertir(t, "advertencia")),
+  ];
 }
 
-function columnaDeLinea(linea) {
-  if (!linea) return null;
-  const token = estado.tokens.find((t) => t.linea === linea);
-  return token ? token.columna : null;
+function elementoDiagnostico(d) {
+  const item = document.createElement("li");
+  item.className = `diagnostico ${d.severidad === "error" ? "es-error" : "es-advertencia"}`;
+
+  const posicion = document.createElement("span");
+  posicion.className = "chip-posicion mono";
+  posicion.textContent = d.linea
+    ? `L${d.linea}${d.columna ? ` · C${d.columna}` : ""}`
+    : "general";
+  posicion.title = d.linea
+    ? `línea ${d.linea}${d.columna ? `, columna ${d.columna}` : ""}`
+    : "sin posición";
+
+  const cuerpo = document.createElement("div");
+  cuerpo.className = "diagnostico-cuerpo";
+  const fase = document.createElement("span");
+  fase.className = "diagnostico-fase";
+  fase.textContent = NOMBRE_FASE[d.fase] || d.fase;
+  const mensaje = document.createElement("p");
+  mensaje.className = "diagnostico-mensaje";
+  mensaje.textContent = d.mensaje;
+  cuerpo.append(fase, mensaje);
+  if (d.sugerencia) {
+    const sugerencia = document.createElement("p");
+    sugerencia.className = "diagnostico-sugerencia";
+    sugerencia.textContent = d.sugerencia;
+    cuerpo.appendChild(sugerencia);
+  }
+
+  item.append(posicion, cuerpo);
+  if (d.linea) {
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    item.setAttribute("aria-label",
+      `${fase.textContent}, ${posicion.title}: ${d.mensaje}. Ir a esa posición`);
+    const ir = () => saltarALinea(d.linea, d.columna);
+    item.addEventListener("click", ir);
+    item.addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter" || evento.key === " ") {
+        evento.preventDefault();
+        ir();
+      }
+    });
+  }
+  return item;
 }
 
-function pintarErrores(errores, opciones = {}) {
-  const lista = $("#listaErrores");
-  const listaAdvertencias = $("#listaAdvertencias");
-  const advertencias = opciones.advertencias || [];
-  lista.innerHTML = "";
-  listaAdvertencias.innerHTML = "";
+function pintarDiagnosticos(diagnosticos, opciones = {}) {
+  const errores = diagnosticos.filter((d) => d.severidad === "error");
+  const advertencias = diagnosticos.filter((d) => d.severidad !== "error");
+  estado.diagnosticos = diagnosticos;
 
-  for (const mensaje of errores) {
-    const info = analizarError(mensaje);
-    const item = document.createElement("li");
-
-    const posicion = document.createElement("span");
-    posicion.className = "posicion";
-    const columna = info.columna !== null ? info.columna : columnaDeLinea(info.linea);
-    posicion.textContent = info.linea
-      ? `línea ${info.linea}${columna !== null ? `, col ${columna}` : ""}`
-      : "general";
-
-    const cuerpo = document.createElement("span");
-    cuerpo.textContent = `${info.tipo}: ${info.mensaje}`;
-
-    const detalle = document.createElement("span");
-    detalle.className = "detalle";
-    detalle.textContent = "Clic para ir a esa línea del circuito";
-
-    item.appendChild(posicion);
-    item.appendChild(cuerpo);
-    item.appendChild(detalle);
-    if (info.linea) item.addEventListener("click", () => saltarALinea(info.linea));
-    lista.appendChild(item);
-  }
-
-  for (const mensaje of advertencias) {
-    const info = analizarError(mensaje);
-    const item = document.createElement("li");
-    item.classList.add("advertencia");
-
-    const posicion = document.createElement("span");
-    posicion.className = "posicion";
-    posicion.textContent = info.linea ? `línea ${info.linea}` : "general";
-
-    const cuerpo = document.createElement("span");
-    cuerpo.textContent = `${info.tipo}: ${info.mensaje}`;
-
-    item.appendChild(posicion);
-    item.appendChild(cuerpo);
-    if (info.linea) item.addEventListener("click", () => saltarALinea(info.linea));
-    listaAdvertencias.appendChild(item);
-  }
+  $("#listaErrores").replaceChildren(...errores.map(elementoDiagnostico));
+  $("#listaAdvertencias").replaceChildren(...advertencias.map(elementoDiagnostico));
+  $("#cuentaErrores").textContent = errores.length;
+  $("#cuentaAdvertencias").textContent = advertencias.length;
+  $("#bloqueErrores").classList.toggle("oculto", errores.length === 0);
+  $("#bloqueAdvertencias").classList.toggle("oculto", advertencias.length === 0);
+  $("#sinDiagnosticos").classList.toggle("oculto", diagnosticos.length > 0);
 
   actualizarPestanaErrores(errores.length, advertencias.length);
   // Con validación automática solo se muestran; el resultado anterior se conserva.
@@ -1187,21 +1386,57 @@ function descargar(texto, nombre, tipo) {
   URL.revokeObjectURL(url);
 }
 
-function exportar(tipo) {
+async function exportar(tipo) {
   const datos = estado.resultado;
+  cerrarMenuExportar();
   if (!datos || !datos.exito) return;
 
   if (tipo === "svg") {
     descargar(Exportacion.construirSVG(datos),
               Exportacion.nombreArchivo("svg"), "image/svg+xml");
   } else if (tipo === "csv") {
-    descargar(Exportacion.construirCSV(datos.tabla_verdad),
-              Exportacion.nombreArchivo("csv"), "text/csv");
+    if (datos.tabla_omitida) {
+      await exportarCsvPorBloques(datos);
+    } else {
+      descargar(Exportacion.construirCSV(datos.tabla_verdad),
+                Exportacion.nombreArchivo("csv"), "text/csv");
+    }
   } else if (tipo === "json") {
     descargar(Exportacion.construirJSON(datos),
               Exportacion.nombreArchivo("json"), "application/json");
+  } else if (tipo === "verilog" && datos.verilog) {
+    const codigo = $("#verilogTestbench").checked && datos.verilog.testbench
+      ? `${datos.verilog.modulo}\n${datos.verilog.testbench}` : datos.verilog.modulo;
+    descargar(codigo, Exportacion.nombreArchivo("v"), "text/plain");
   }
-  cerrarMenuExportar();
+}
+
+// Una tabla de 2^20 filas no se arma nunca en memoria del servidor: se piden
+// bloques a /tabla y se van juntando las partes en un Blob.
+async function exportarCsvPorBloques(datos) {
+  const total = datos.tabla_omitida.filas_totales;
+  const codigo = estado.tabla.codigo || $("#codigo").value;
+  const partes = [Exportacion.construirCSV({ señales: datos.tabla_verdad.señales, filas: [] })];
+  try {
+    for (let desde = 0; desde < total; desde += FILAS_POR_PETICION_CSV) {
+      avisar(`Exportando CSV: ${Math.round((desde / total) * 100)} %...`, false);
+      const bloque = await pedirFilas(codigo, desde, FILAS_POR_PETICION_CSV);
+      if (!bloque.exito) throw new Error((bloque.errores || ["sin detalle"]).join(" "));
+      partes.push(Exportacion.filasCSV(bloque.filas));
+    }
+  } catch (error) {
+    avisar(`No se pudo exportar el CSV: ${error.message || error}`, true);
+    return;
+  }
+  const url = URL.createObjectURL(new Blob(partes, { type: "text/csv" }));
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = Exportacion.nombreArchivo("csv");
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  URL.revokeObjectURL(url);
+  avisar(`CSV exportado (${total.toLocaleString("es")} filas).`, false);
 }
 
 /* ======================================================================== */
@@ -1233,10 +1468,17 @@ function conectarEventos() {
   // Navegación
   window.addEventListener("hashchange", mostrarVista);
 
-  // Pestañas
+  // Pestañas y subpestañas (clic y flechas del teclado)
   document.querySelectorAll(".pestana").forEach((pestana) => {
     pestana.addEventListener("click", () => activarPestana(pestana.dataset.panel));
   });
+  $("#pestanas").addEventListener("keydown", (evento) =>
+    navegarConTeclado(evento, ".pestana", "panel", activarPestana));
+  document.querySelectorAll(".subpestana").forEach((pestana) => {
+    pestana.addEventListener("click", () => activarSubpestana(pestana.dataset.sub));
+  });
+  document.querySelector(".subpestanas").addEventListener("keydown", (evento) =>
+    navegarConTeclado(evento, ".subpestana", "sub", activarSubpestana));
 
   // Diagrama
   conectarVisor($("#visor"));
@@ -1263,9 +1505,14 @@ function conectarEventos() {
     pintarTabla();
   });
   $("#cargarMas").addEventListener("click", () => {
+    if (estado.tabla.remota && estado.tabla.mostradas >= filasFiltradas().length) {
+      cargarBloqueRemoto();
+      return;
+    }
     estado.tabla.mostradas += FILAS_POR_BLOQUE;
     pintarTabla();
   });
+  $("#generarTabla").addEventListener("click", generarTablaRemota);
   $("#tablaScroll").addEventListener("scroll", (evento) => {
     const caja = evento.target;
     if (caja.scrollTop + caja.clientHeight >= caja.scrollHeight - 40) {
@@ -1273,6 +1520,8 @@ function conectarEventos() {
       if (estado.tabla.mostradas < total) {
         estado.tabla.mostradas += FILAS_POR_BLOQUE;
         pintarTabla();
+      } else if (estado.tabla.remota) {
+        cargarBloqueRemoto();
       }
     }
   });
@@ -1294,6 +1543,9 @@ function conectarEventos() {
     pintarExpresiones();
   });
   $("#copiarExpresion").addEventListener("click", copiarExpresiones);
+  $("#verilogTestbench").addEventListener("change", pintarVerilog);
+  $("#copiarVerilog").addEventListener("click", () =>
+    copiarTexto($("#codigoVerilog").textContent, "Código Verilog copiado."));
 
   // Exportar
   $("#botonExportar").addEventListener("click", (evento) => {
@@ -1344,6 +1596,7 @@ function iniciar() {
   mostrarVista();
   cargarFondo();
   actualizarPestanaErrores(0);
+  activarSubpestana(estado.subActiva);
   pintarExpresiones();
 }
 
