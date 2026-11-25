@@ -271,12 +271,53 @@ class AnalizadorSemantico:
                         f"¿quisiste decir '{parecida}'?" if parecida else
                         "declárala en ENTRADA[...] o como salida de una compuerta"))
 
+        # 3b. Salidas declaradas con SALIDA[...].
+        errores.extend(self._errores_de_salidas())
+
         # 4. Detección de ciclos. Siempre se ejecuta (aunque haya una señal
         #    redefinida) usando la primera definición de cada señal, y se
         #    reporta un ciclo por cada componente fuertemente conexa.
         errores.extend(self._errores_de_ciclos())
 
         return errores
+
+    def _errores_de_salidas(self):
+        """Cada salida declarada debe producirla una compuerta, sin repetirse."""
+        if self.salidas_declaradas is None:
+            return []
+        errores = []
+        entradas = set(self.entradas)
+        producidas = [c["salida"] for c in self.compuertas if not c.get("temporal")]
+        vistas = set()
+        for i, senal in enumerate(self.salidas_declaradas):
+            if self.pos_salidas and i < len(self.pos_salidas):
+                linea, columna = self.pos_salidas[i]
+            else:
+                linea, columna = self.linea_entrada, None
+            if senal in vistas:
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la salida {senal} está declarada más de una vez",
+                    "borra la repetición en SALIDA[...]"))
+            elif senal in entradas:
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la entrada {senal} no puede declararse como salida",
+                    "una salida la produce una compuerta, por ejemplo "
+                    f"OR[{senal}, 0] -> s y SALIDA[s]"))
+            elif senal not in producidas:
+                parecida = mas_parecido(senal, producidas)
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la salida {senal} declarada en SALIDA no la produce ninguna compuerta",
+                    f"¿quisiste decir '{parecida}'?" if parecida else
+                    f"agrega una instrucción que termine en -> {senal}"))
+            vistas.add(senal)
+        return errores
+
+    def temporales(self):
+        """Señales temporales creadas al desazucarar compuertas anidadas."""
+        return [c["salida"] for c in self.compuertas if c.get("temporal")]
 
     def _calcular_advertencias(self):
         advertencias = []
@@ -499,9 +540,15 @@ class AnalizadorSemantico:
         valores.pop("1", None)
         return valores
 
-    def senales_tabla(self):
-        """Columnas de la tabla: entradas y luego salidas en orden de definición."""
-        return list(self.entradas) + [c["salida"] for c in self.compuertas]
+    def senales_tabla(self, incluir_temporales=True):
+        """Columnas de la tabla: entradas y luego salidas en orden de definición.
+
+        Las señales temporales (_t1, _t2...) se pueden dejar fuera: la web y la
+        consola las ocultan por defecto.
+        """
+        return list(self.entradas) + [
+            c["salida"] for c in self.compuertas
+            if incluir_temporales or not c.get("temporal")]
 
     def filas_tabla(self, desde=0, cantidad=None, senales=None):
         """Solo las filas [desde, desde + cantidad) de la tabla de verdad.

@@ -4,10 +4,19 @@
 # Recibe la lista de tokens producida por la fase lexica y comprueba que se
 # ajuste a la gramatica del lenguaje:
 #
-#   <circuito>    ::= <entrada> <instruccion>+
-#   <entrada>     ::= "ENTRADA" "[" <id> ("," <id>)* "]"
-#   <instruccion> ::= <compuerta> "[" <id> ("," <id>)* "]" "->" <id>
-#   <compuerta>   ::= "AND" | "OR" | "NOT" | "XOR" | "NAND" | "NOR" | "XNOR"
+#   <circuito>     ::= <entrada> [<salidas>] <instruccion>+
+#   <entrada>      ::= ENTRADA "[" <lista_id> "]"
+#   <salidas>      ::= SALIDA  "[" <lista_id> "]"
+#   <lista_id>     ::= ID ("," ID)*
+#   <instruccion>  ::= <compuerta> "->" ID
+#   <compuerta>    ::= NOMBRE_COMPUERTA "[" <argumento> ("," <argumento>)* "]"
+#   <argumento>    ::= ID | CONSTANTE | <compuerta>
+#   CONSTANTE      ::= "0" | "1"
+#   NOMBRE_COMPUERTA ::= AND | OR | NOT | XOR | NAND | NOR | XNOR  (reglas.json)
+#
+# SALIDA es opcional: sin ella, las salidas del circuito son las señales que
+# no alimentan a ninguna compuerta (como antes de la fase 3). Las compuertas
+# pueden anidarse: OR[AND[a, b], NOT[c]] -> y.
 #
 # Parser descendente recursivo con RECUPERACIÓN EN MODO PÁNICO: al encontrar
 # un error lo registra y se sincroniza en el primer token de una línea
@@ -15,15 +24,22 @@
 # línea y unos 50 en total). Los mensajes no usan los nombres internos de los
 # tokens: dicen qué falta y dónde ("falta una coma entre 'a' y 'b'").
 #
-# Como resultado construye la estructura interna del circuito (entradas y
-# compuertas con la posición de cada referencia) y un AST JSON.
+# Como resultado construye el AST tipado (ast_jace.py) y, a partir de él, la
+# estructura plana desazucarada {entradas, compuertas} que usan las fases
+# siguientes: cada compuerta anidada pasa a ser una señal temporal _t1, _t2...
 # ============================================================================
 
+from ast_jace import (Asignacion, Circuito, Compuerta, Constante,
+                      DeclaracionEntradas, DeclaracionSalidas, Senal,
+                      ast_legado, desazucarar)
 from rutas import cargar_reglas
 from sugerencias import mas_parecido
 import diagnosticos as diag
 
 MAXIMO_ERRORES = 50
+
+# Niveles de compuertas anidadas que se aceptan (el parser es recursivo).
+MAXIMO_ANIDAMIENTO = 100
 
 # Cómo se nombra cada tipo de token en los mensajes.
 NOMBRES_AMIGABLES = {
@@ -31,6 +47,7 @@ NOMBRES_AMIGABLES = {
     "CORCHETE CIERRA": "']'",
     "COMA": "','",
     "FLECHA": "'->'",
+    "CONSTANTE": "una constante",
     "IDENTIFICADOR": "un nombre",
     "PALABRA RESERVADA": "una palabra reservada",
 }
@@ -58,6 +75,8 @@ def describir(token):
         return f"el nombre '{token.valor}'"
     if token.token == "PALABRA RESERVADA":
         return f"la palabra reservada {token.valor}"
+    if token.token == "CONSTANTE":
+        return f"la constante {token.valor}"
     return f"'{token.valor}'"
 
 
@@ -111,7 +130,16 @@ class AnalisisSintactico:
         return token.token == "ERROR" and getattr(token, "sustituye", None) == tipo
 
     def es_nombre(self, token):
-        return self.es(token, "IDENTIFICADOR")
+        """Un nombre de señal. SALIDA es una palabra reservada contextual:
+        solo abre una declaración si va seguida de '['; en cualquier otro
+        lugar se acepta como nombre (había circuitos con señales «SALIDA»)."""
+        if self.es(token, "IDENTIFICADOR"):
+            return True
+        if token is None or token.token != "PALABRA RESERVADA" or token.valor != "SALIDA":
+            return False
+        if token is not self.actual():
+            return True
+        return not self.es(self.siguiente(), "CORCHETE ABRE")
 
     def es_compuerta(self, token):
         return (token is not None and token.token == "PALABRA RESERVADA"
@@ -165,42 +193,38 @@ class AnalisisSintactico:
     # ------------------------------------------------------------------
     # Reglas de la gramática
     # ------------------------------------------------------------------
-    def _lista_de_nombres(self, duenio, token_duenio, es_entrada):
-        """'[' <id> (',' <id>)* ']' → lista de (nombre, token).
+    def _lista(self, duenio, token_duenio, que, leer_elemento):
+        """'[' <elemento> (',' <elemento>)* ']' → lista de (texto, nodo, token_fin).
 
-        `duenio` es "ENTRADA" o el nombre de la compuerta, para los mensajes.
+        `duenio` es ENTRADA, SALIDA o el nombre de la compuerta (para los
+        mensajes) y `que` describe lo que va dentro ("entradas", ...).
         """
         apertura = self.actual()
         if not self.es(apertura, "CORCHETE ABRE"):
             if self.es_nombre(apertura) and apertura.linea == token_duenio.linea:
                 raise self._fallo_en(apertura, f"falta '[' después de {duenio}",
                                      f"escribe {duenio}[{apertura.valor}, ...]")
-            raise self._fallo_tras(
-                token_duenio,
-                f"falta '[' después de {duenio} para abrir la lista de "
-                + ("entradas" if es_entrada else "entradas de la compuerta"),
-                f"escribe {duenio}[...]")
+            raise self._fallo_tras(token_duenio,
+                                   f"falta '[' después de {duenio} para abrir la lista de {que}",
+                                   f"escribe {duenio}[...]")
         self.pos += 1
 
-        que = "un nombre de entrada" if es_entrada else "al menos una entrada"
         if self.es(self.actual(), "CORCHETE CIERRA"):
-            if es_entrada:
+            if duenio in ("ENTRADA", "SALIDA"):
+                ejemplo = "a, b" if duenio == "ENTRADA" else "y"
                 raise self._fallo_en(self.actual(),
-                                     "ENTRADA necesita al menos un nombre de entrada "
+                                     f"{duenio} necesita al menos un nombre de "
+                                     f"{'entrada' if duenio == 'ENTRADA' else 'salida'} "
                                      "entre los corchetes",
-                                     "por ejemplo ENTRADA[a, b]")
+                                     f"por ejemplo {duenio}[{ejemplo}]")
             raise self._fallo_en(self.actual(),
-                                 f"la compuerta {duenio} necesita {que} entre los corchetes",
+                                 f"la compuerta {duenio} necesita al menos una entrada "
+                                 "entre los corchetes",
                                  f"por ejemplo {duenio}[a, b] -> x")
 
-        nombres = []
+        elementos = []
         while True:
-            token = self.actual()
-            if self.es_nombre(token):
-                nombres.append((token.valor, token))
-                self.pos += 1
-            else:
-                raise self._argumento_invalido(token, duenio, apertura, nombres)
+            elementos.append(leer_elemento(apertura, elementos))
 
             separador = self.actual()
             if self.es(separador, "COMA"):
@@ -208,17 +232,57 @@ class AnalisisSintactico:
                 continue
             if self.es(separador, "CORCHETE CIERRA"):
                 self.pos += 1
-                return nombres
-            raise self._separador_invalido(separador, duenio, apertura, nombres)
+                return elementos
+            raise self._separador_invalido(separador, duenio, apertura, elementos)
 
-    def _argumento_invalido(self, token, duenio, apertura, nombres):
-        """Mensaje cuando se esperaba un nombre dentro de los corchetes."""
+    def _leer_nombre_declarado(self, duenio):
+        """Elemento de ENTRADA[...] o SALIDA[...]: solo nombres."""
+        def leer(apertura, elementos):
+            token = self.actual()
+            if self.es_nombre(token):
+                self.pos += 1
+                return token.valor, Senal(token.linea, token.columna, token.valor), token
+            if self.es(token, "CONSTANTE"):
+                raise self._fallo_en(token,
+                                     f"las constantes 0 y 1 no pueden declararse en {duenio}: "
+                                     "solo se usan como argumentos de una compuerta",
+                                     "por ejemplo AND[a, 1] -> x")
+            raise self._argumento_invalido(token, duenio, apertura, elementos)
+        return leer
+
+    def _leer_argumento(self, duenio, profundidad):
+        """Elemento de una compuerta: <id> | CONSTANTE | <compuerta>."""
+        def leer(apertura, elementos):
+            token = self.actual()
+            if self.es_nombre(token) and token.token == "IDENTIFICADOR" \
+                    and self.es(self.siguiente(), "CORCHETE ABRE"):
+                raise self._compuerta_desconocida(token)
+            if self.es_nombre(token):
+                self.pos += 1
+                return token.valor, Senal(token.linea, token.columna, token.valor), token
+            if self.es(token, "CONSTANTE"):
+                self.pos += 1
+                return (token.valor, Constante(token.linea, token.columna, int(token.valor)),
+                        token)
+            if self.es_compuerta(token) and self.es(self.siguiente(), "CORCHETE ABRE"):
+                compuerta = self._compuerta(profundidad + 1)
+                return f"{compuerta.nombre}[...]", compuerta, self.anterior()
+            if self.es_compuerta(token):
+                raise self._fallo_en(token,
+                                     f"la palabra reservada {token.valor} no puede usarse "
+                                     "como nombre de señal",
+                                     f"para anidar una compuerta escribe {token.valor}[...]")
+            raise self._argumento_invalido(token, duenio, apertura, elementos)
+        return leer
+
+    def _argumento_invalido(self, token, duenio, apertura, elementos):
+        """Mensaje cuando se esperaba un elemento dentro de los corchetes."""
         previo = self.anterior()
         if token is None or token.linea != previo.linea:
             return self._fallo_tras(previo, f"falta ']' para cerrar la lista de {duenio}",
                                     f"la lista se abrió en la columna {apertura.columna}")
         if self.es(token, "COMA"):
-            if nombres:
+            if elementos:
                 return self._fallo_en(token, "sobra una coma: hay dos comas seguidas",
                                       "borra una de las comas o escribe el nombre que falta")
             return self._fallo_en(token, "falta un nombre antes de ','",
@@ -236,42 +300,69 @@ class AnalisisSintactico:
                                   "cierra los corchetes antes de '->'")
         return self._fallo_en(token, f"se esperaba un nombre de señal y llegó {describir(token)}")
 
-    def _separador_invalido(self, token, duenio, apertura, nombres):
-        """Mensaje cuando tras un nombre no viene ',' ni ']'."""
-        ultimo_nombre, ultimo_token = nombres[-1]
+    def _separador_invalido(self, token, duenio, apertura, elementos):
+        """Mensaje cuando tras un elemento no viene ',' ni ']'."""
+        ultimo_texto, _, ultimo_token = elementos[-1]
         if token is None or token.linea != ultimo_token.linea:
             return self._fallo_tras(ultimo_token,
                                     f"falta ']' para cerrar la lista de {duenio}",
                                     f"la lista se abrió en la columna {apertura.columna}")
-        if self.es_nombre(token) or token.token == "PALABRA RESERVADA":
+        if self.es_nombre(token) or token.token in ("PALABRA RESERVADA", "CONSTANTE"):
             nombre = token.valor
             return self._fallo_en(token,
-                                  f"falta una coma entre '{ultimo_nombre}' y '{nombre}'",
-                                  f"escribe {ultimo_nombre}, {nombre}")
+                                  f"falta una coma entre '{ultimo_texto}' y '{nombre}'",
+                                  f"escribe {ultimo_texto}, {nombre}")
         if self.es(token, "FLECHA"):
             return self._fallo_en(token, f"falta ']' para cerrar la lista de {duenio}",
                                   "cierra los corchetes antes de '->'")
         if self.es(token, "CORCHETE ABRE"):
-            return self._fallo_en(token, "sobra '[': los corchetes no se pueden anidar aquí")
-        return self._fallo_en(token, f"se esperaba ',' o ']' después de '{ultimo_nombre}' "
+            return self._fallo_en(token, "sobra '[': solo una compuerta puede abrir corchetes",
+                                  "para anidar escribe el nombre de la compuerta antes del '['")
+        return self._fallo_en(token, f"se esperaba ',' o ']' después de '{ultimo_texto}' "
                                      f"y llegó {describir(token)}")
 
-    def _declaracion_entradas(self):
-        """<entrada> ::= ENTRADA '[' <id> (',' <id>)* ']'."""
+    def _compuerta_desconocida(self, token):
+        compuertas = ", ".join(sorted(self.nombres_compuertas))
+        parecida = mas_parecido(token.valor, sorted(self.nombres_compuertas),
+                                ignorar_mayusculas=True)
+        sugerencia = (f"¿quisiste decir {parecida}?" if parecida
+                      else f"las compuertas son {compuertas}")
+        return self._fallo_en(token, f"'{token.valor}' no es una compuerta conocida",
+                              sugerencia)
+
+    def _declaracion(self, palabra):
+        """<entrada> ::= ENTRADA '[' <lista_id> ']'  (igual para SALIDA)."""
         token = self.actual()
         self.pos += 1
-        nombres = self._lista_de_nombres("ENTRADA", token, es_entrada=True)
-        return token, nombres
+        que = "entradas" if palabra == "ENTRADA" else "salidas"
+        elementos = self._lista(palabra, token, que, self._leer_nombre_declarado(palabra))
+        senales = [nodo for _, nodo, _ in elementos]
+        clase = DeclaracionEntradas if palabra == "ENTRADA" else DeclaracionSalidas
+        return clase(token.linea, token.columna, senales)
+
+    def _compuerta(self, profundidad=0):
+        """<compuerta> ::= NOMBRE '[' <argumento> (',' <argumento>)* ']'."""
+        token = self.actual()
+        if profundidad > MAXIMO_ANIDAMIENTO:
+            raise self._fallo_en(token,
+                                 f"hay más de {MAXIMO_ANIDAMIENTO} compuertas anidadas una "
+                                 "dentro de otra",
+                                 "separa la expresión en varias instrucciones con señales "
+                                 "intermedias")
+        self.pos += 1
+        elementos = self._lista(token.valor, token, "entradas de la compuerta",
+                                self._leer_argumento(token.valor, profundidad))
+        return Compuerta(token.linea, token.columna, token.valor,
+                         [nodo for _, nodo, _ in elementos])
 
     def _instruccion(self, fin_anterior):
-        """<instruccion> ::= <compuerta> '[' ids ']' '->' <id>."""
+        """<instruccion> ::= <compuerta> '->' <id>."""
         token = self.actual()
         if not self.es_compuerta(token):
             raise self._inicio_invalido(token, fin_anterior)
-        self.pos += 1
         nombre = token.valor
 
-        argumentos = self._lista_de_nombres(nombre, token, es_entrada=False)
+        compuerta = self._compuerta()
         cierre = self.anterior()
 
         flecha = self.actual()
@@ -283,7 +374,7 @@ class AnalisisSintactico:
             if flecha is None or flecha.linea != cierre.linea:
                 raise self._fallo_tras(cierre,
                                        f"falta '->' y el nombre de la salida después de {nombre}[...]",
-                                       f"termina la instrucción con -> salida")
+                                       "termina la instrucción con -> salida")
             raise self._fallo_en(flecha, f"se esperaba '->' después de ']' y llegó {describir(flecha)}")
         self.pos += 1
 
@@ -297,10 +388,16 @@ class AnalisisSintactico:
                                      f"la palabra reservada {salida.valor} no puede usarse "
                                      "como nombre de la salida",
                                      f"usa otro nombre, por ejemplo '{salida.valor.lower()}1'")
+            if salida.token == "CONSTANTE":
+                raise self._fallo_en(salida,
+                                     f"la salida no puede ser la constante {salida.valor}: "
+                                     "las constantes solo se usan como argumentos",
+                                     "escribe un nombre de señal después de '->'")
             raise self._fallo_en(salida, "se esperaba el nombre de la salida después de '->' "
                                          f"y llegó {describir(salida)}")
         self.pos += 1
-        return token, argumentos, salida
+        return Asignacion(token.linea, token.columna, compuerta,
+                          Senal(salida.linea, salida.columna, salida.valor))
 
     def _inicio_invalido(self, token, fin_anterior):
         """Mensaje cuando una instrucción no empieza con una compuerta."""
@@ -310,14 +407,13 @@ class AnalisisSintactico:
                                   "se esperaba una compuerta y llegó ENTRADA: solo puede "
                                   "haber una declaración ENTRADA, al inicio del circuito",
                                   "junta todas las entradas en la primera ENTRADA[...]")
-        siguiente = self.siguiente()
-        if self.es_nombre(token) and token.token == "IDENTIFICADOR" and self.es(siguiente, "CORCHETE ABRE"):
-            parecida = mas_parecido(token.valor, sorted(self.nombres_compuertas),
-                                    ignorar_mayusculas=True)
-            sugerencia = (f"¿quisiste decir {parecida}?" if parecida
-                          else f"las compuertas son {compuertas}")
-            return self._fallo_en(token, f"'{token.valor}' no es una compuerta conocida",
-                                  sugerencia)
+        if token.token == "PALABRA RESERVADA" and token.valor == "SALIDA":
+            return self._fallo_en(token,
+                                  "SALIDA debe ir justo después de ENTRADA[...] y solo "
+                                  "una vez",
+                                  "mueve SALIDA[...] a la segunda instrucción del circuito")
+        if token.token == "IDENTIFICADOR" and self.es(self.siguiente(), "CORCHETE ABRE"):
+            return self._compuerta_desconocida(token)
         if fin_anterior is not None and token.linea == fin_anterior.linea:
             return self._fallo_en(token,
                                   f"sobra {describir(token)} al final de la instrucción",
@@ -347,12 +443,12 @@ class AnalisisSintactico:
                 "empieza con ENTRADA[a, b] y una compuerta, por ejemplo AND[a, b] -> x"))
             return None, self.diagnosticos
 
-        entradas = []
-        token_entrada = None
+        entradas = None
+        salidas = None
         primero = self.actual()
         if primero.token == "PALABRA RESERVADA" and primero.valor == "ENTRADA":
             try:
-                token_entrada, entradas = self._declaracion_entradas()
+                entradas = self._declaracion("ENTRADA")
             except _ErrorSintactico as error:
                 self._registrar(error)
                 self._sincronizar(error.diagnostico.linea)
@@ -363,8 +459,18 @@ class AnalisisSintactico:
                 f"el circuito debe empezar declarando sus entradas: se esperaba "
                 f"ENTRADA[...] y llegó {describir(primero)}",
                 "agrega una primera línea como ENTRADA[a, b]"))
-            if not self.es_compuerta(primero):
+            if not self.es_compuerta(primero) and not \
+                    (primero.token == "PALABRA RESERVADA" and primero.valor == "SALIDA"):
                 self._sincronizar(primero.linea)
+
+        # [<salidas>] opcional, justo después de ENTRADA.
+        token = self.actual()
+        if token is not None and token.token == "PALABRA RESERVADA" and token.valor == "SALIDA":
+            try:
+                salidas = self._declaracion("SALIDA")
+            except _ErrorSintactico as error:
+                self._registrar(error)
+                self._sincronizar(error.diagnostico.linea)
 
         instrucciones = []
         fin_anterior = self.anterior()
@@ -378,17 +484,20 @@ class AnalisisSintactico:
                 fin_anterior = None
 
         if not instrucciones and not self.diagnosticos and not self._hubo_silenciosos:
-            linea = token_entrada.linea if token_entrada else 1
-            columna = token_entrada.columna if token_entrada else 1
+            linea = entradas.linea if entradas else 1
+            columna = entradas.columna if entradas else 1
             self.diagnosticos.append(diag.error(
                 "sintáctico", linea, columna,
                 "el circuito debe contener al menos una compuerta",
                 "agrega una instrucción como AND[a, b] -> x"))
 
         # Con errores (o con comodines del léxico) no se construye nada.
-        if self.diagnosticos or self._hubo_silenciosos:
+        if self.diagnosticos or self._hubo_silenciosos or entradas is None:
             return None, self.diagnosticos
-        return self._construir(token_entrada, entradas, instrucciones), []
+
+        circuito = Circuito(entradas.linea, entradas.columna, entradas, salidas,
+                            instrucciones)
+        return self._construir(circuito), []
 
     def construir_circuito(self):
         """Analiza la secuencia de tokens y devuelve la estructura del circuito.
@@ -409,46 +518,9 @@ class AnalisisSintactico:
     # Construcción de la estructura y del AST
     # ------------------------------------------------------------------
     @staticmethod
-    def _construir(token_entrada, entradas, instrucciones):
-        linea_entrada = token_entrada.linea or 1
-        compuertas = []
-        instrucciones_ast = []
-        for token, argumentos, salida in instrucciones:
-            compuertas.append({
-                "compuerta": token.valor,
-                "entradas": [nombre for nombre, _ in argumentos],
-                "salida": salida.valor,
-                "linea": token.linea or 1,
-                "columna": token.columna,
-                "pos_entradas": [[t.linea, t.columna] for _, t in argumentos],
-                "pos_salida": [salida.linea, salida.columna],
-            })
-            instrucciones_ast.append({
-                "tipo": "asignacion",
-                "salida": salida.valor,
-                "linea": token.linea or 1,
-                "expresion": {
-                    "tipo": "compuerta",
-                    "nombre": token.valor,
-                    "entradas": [{"tipo": "senal", "nombre": nombre}
-                                 for nombre, _ in argumentos],
-                },
-            })
-
-        return {
-            "entradas": [nombre for nombre, _ in entradas],
-            "linea_entrada": linea_entrada,
-            "columna_entrada": token_entrada.columna,
-            "pos_entradas": [[t.linea, t.columna] for _, t in entradas],
-            "compuertas": compuertas,
-            "ast": {
-                "tipo": "circuito",
-                "declaracion_entradas": {
-                    "tipo": "declaracion_entradas",
-                    "linea": linea_entrada,
-                    "entradas": [{"tipo": "senal", "nombre": nombre}
-                                 for nombre, _ in entradas],
-                },
-                "instrucciones": instrucciones_ast,
-            },
-        }
+    def _construir(circuito):
+        """Estructura plana (desazucarada) + AST tipado + AST JSON histórico."""
+        estructura = desazucarar(circuito)
+        estructura["arbol"] = circuito
+        estructura["ast"] = ast_legado(circuito)
+        return estructura

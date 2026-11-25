@@ -400,7 +400,7 @@ def _consumidores(i, compuertas, por_col):
     return res
 
 
-def generar_diagrama(entradas, compuertas, estilo=None, fondo=FONDO):
+def generar_diagrama(entradas, compuertas, estilo=None, fondo=FONDO, salidas=None):
     """Devuelve un Drawing de schemdraw con el esquema completo del circuito.
 
     `estilo` es un dict de ESTILO_CLARO/ESTILO_OSCURO (paleta central de
@@ -442,11 +442,16 @@ def generar_diagrama(entradas, compuertas, estilo=None, fondo=FONDO):
     for i, c in enumerate(compuertas):
         prod_col[c["salida"]] = niveles[i] - 1
 
-    usadas = set()
-    for c in compuertas:
-        usadas.update(c["entradas"])
-    salidas_finales = [c["salida"] for c in compuertas
-                       if c["salida"] not in usadas]
+    if salidas is None:
+        usadas = set()
+        for c in compuertas:
+            usadas.update(c["entradas"])
+        salidas_finales = [c["salida"] for c in compuertas
+                           if c["salida"] not in usadas]
+    else:
+        # Salidas indicadas por el llamador (SALIDA[...] declarada).
+        salidas_finales = [s for s in dict.fromkeys(salidas)
+                           if _producida_por(s, compuertas) is not None]
 
     for s in salidas_finales:
         i = _producida_por(s, compuertas)

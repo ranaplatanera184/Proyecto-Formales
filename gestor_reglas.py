@@ -17,6 +17,10 @@ from rutas import cargar_reglas, ubicar_reglas
 
 from ImplementacionAnalisisLexico import analizar_lexico
 from AnalisisSintactico import AnalisisSintactico
+from ast_jace import arbol_ascii
+from ir import generar_ir
+from optimizador import informe as informe_optimizador
+from backends import verilog
 from semantico import AnalizadorSemantico, generar_dot
 from expresiones import generar_expresiones
 import schematico
@@ -174,6 +178,13 @@ class GestorReglas:
             "diagrama_dot": "",
             "diagrama_svg": "",
             "texto": "",
+            "arbol_ascii": "",
+            "salidas": [],
+            "salidas_declaradas": None,
+            "temporales": [],
+            "ir": [],
+            "optimizacion": None,
+            "verilog": None,
         }
 
     def _analizar(self, texto, fondo, escribir_archivos, con_diagrama,
@@ -208,7 +219,9 @@ class GestorReglas:
             if errores_lexicos or errores_sintacticos:
                 estructura = None
             else:
-                resultado["ast"] = estructura["ast"]
+                # AST tipado ({tipo, valor, linea, columna, hijos}).
+                resultado["ast"] = estructura["arbol"].a_json()
+                resultado["arbol_ascii"] = arbol_ascii(estructura["arbol"])
 
         resultado["tokens"] = [t.to_json() for t in tokens]
 
@@ -222,7 +235,12 @@ class GestorReglas:
                 estructura["compuertas"],
                 self.reglas["compuertas"],
                 linea_entrada=estructura["linea_entrada"],
-                pos_entradas=estructura.get("pos_entradas"))
+                pos_entradas=estructura.get("pos_entradas"),
+                salidas_declaradas=estructura.get("salidas_declaradas"),
+                pos_salidas=estructura.get("pos_salidas"))
+            resultado["salidas_declaradas"] = estructura.get("salidas_declaradas")
+            resultado["salidas"] = semantico.salidas_finales()
+            resultado["temporales"] = semantico.temporales()
             resultado["tabla_simbolos"] = semantico.tabla_simbolos()
             errores_semanticos = semantico.diagnosticos()
             diagnosticos.extend(errores_semanticos)
@@ -267,6 +285,23 @@ class GestorReglas:
                 "limite_entradas": limite_tabla,
             }
 
+        # Código intermedio, optimización y backend Verilog.
+        codigo_intermedio = generar_ir(semantico)
+        resultado["ir"] = [i.a_json() for i in codigo_intermedio]
+        informe_optimizacion, optimizado = informe_optimizador(
+            codigo_intermedio, resultado["salidas"], estructura["entradas"])
+        resultado["optimizacion"] = informe_optimizacion
+        entradas_unicas = list(dict.fromkeys(estructura["entradas"]))
+        resultado["verilog"] = {
+            "modulo": verilog.generar_modulo(optimizado, entradas_unicas,
+                                             resultado["salidas"]),
+            "testbench": (verilog.generar_testbench(entradas_unicas, resultado["salidas"])
+                          if total_entradas <= limite_tabla else None),
+            "aviso_testbench": (None if total_entradas <= limite_tabla else
+                                f"Sin testbench: recorrería 2^{total_entradas} "
+                                f"combinaciones (límite {limite_tabla} entradas)"),
+        }
+
         resultado["expresiones"] = [
             {"salida": salida, "expresion": expresion}
             for salida, expresion in semantico.expresiones_booleanas()
@@ -288,8 +323,18 @@ class GestorReglas:
         # Diagrama esquemático (SchemDraw) y DOT de respaldo.
         # con_diagrama=False permite validar sin dibujar nada.
         if con_diagrama:
+            # Las constantes usadas se dibujan como terminales de entrada.
+            constantes = [c for c in ("0", "1")
+                          if any(c in g["entradas"] for g in estructura["compuertas"])]
+            # Toda señal que no alimenta nada recibe un terminal de salida
+            # (también las de compuertas muertas, para que se vean).
+            usadas = {s for g in estructura["compuertas"] for s in g["entradas"]}
+            salidas_dibujo = list(dict.fromkeys(
+                resultado["salidas"] + [g["salida"] for g in estructura["compuertas"]
+                                        if g["salida"] not in usadas]))
             circuito = schematico.generar_diagrama(
-                estructura["entradas"], estructura["compuertas"], fondo=fondo)
+                estructura["entradas"] + constantes, estructura["compuertas"],
+                fondo=fondo, salidas=salidas_dibujo)
             resultado["diagrama_dot"] = generar_dot(estructura["entradas"],
                                                     estructura["compuertas"])
             resultado["diagrama_svg"] = schematico.exportar(

@@ -8,8 +8,8 @@
 # Alfabeto: letras ASCII, dígitos, '_', los símbolos [ ] , -> y los espacios.
 # Todo lo que sigue a '#' hasta el final de la línea es un comentario.
 #
-# Tokens: PALABRA RESERVADA, IDENTIFICADOR, CORCHETE ABRE, CORCHETE CIERRA,
-# COMA y FLECHA.
+# Tokens: PALABRA RESERVADA, IDENTIFICADOR, CONSTANTE (0 y 1), CORCHETE
+# ABRE, CORCHETE CIERRA, COMA y FLECHA.
 #
 # Recuperación de errores: el texto se corta en lexemas (secuencias sin
 # espacios ni delimitadores) y cada lexema inválido produce UN solo error
@@ -28,6 +28,13 @@ import diagnosticos as diag
 DELIMITADORES = set("[],#->")
 
 TIPO_ERROR = "ERROR"
+
+# Palabras reservadas que solo lo son en MAYÚSCULAS (añadidas después de que
+# existieran circuitos que las usan como nombres en minúscula).
+RESERVADAS_SENSIBLES = {"SALIDA"}
+
+# Las constantes lógicas: 0 y 1 aislados (cualquier otro número es un error).
+CONSTANTES_LOGICAS = ("0", "1")
 
 
 def _cargar_palabras_reservadas(ruta=None):
@@ -79,8 +86,13 @@ def _token_error(sustituye, valor, linea, columna):
 def _clasificar_lexema(lexema, linea, columna, palabras_reservadas):
     """(token, diagnóstico) de un lexema; uno de los dos es None."""
     if _es_inicio_identificador(lexema[0]) and all(map(_es_parte_identificador, lexema)):
-        if lexema.upper() in palabras_reservadas:
-            return Token("PALABRA RESERVADA", lexema.upper(), linea, columna), None
+        palabra = lexema.upper()
+        # SALIDA (fase 3) solo es palabra reservada escrita en mayúsculas:
+        # "salida" era un nombre de señal muy usado y debe seguir siéndolo.
+        es_reservada = (palabra in palabras_reservadas
+                        and (palabra not in RESERVADAS_SENSIBLES or lexema == palabra))
+        if es_reservada:
+            return Token("PALABRA RESERVADA", palabra, linea, columna), None
         return Token("IDENTIFICADOR", lexema, linea, columna), None
 
     # Posición del primer carácter fuera del alfabeto de los nombres.
@@ -104,11 +116,14 @@ def _clasificar_lexema(lexema, linea, columna, palabras_reservadas):
                           "los símbolos válidos son [ ] , -> y # para comentarios")
         return None, diag.error("léxico", linea, columna + primero, mensaje, sugerencia)
 
+    if lexema in CONSTANTES_LOGICAS:
+        return Token("CONSTANTE", lexema, linea, columna), None
+
     if _es_digito(lexema[0]):
         if all(map(_es_digito, lexema)):
             return None, diag.error(
                 "léxico", linea, columna,
-                f"el número '{lexema}' no es válido en un circuito",
+                f"el número '{lexema}' no es válido: las únicas constantes son 0 y 1",
                 "las señales se nombran con letras, por ejemplo 'x1'")
         return None, diag.error(
             "léxico", linea, columna,

@@ -50,7 +50,7 @@
       "descripcion": "Devuelve 1 si el número de entradas en 1 es par"
     }
   ],
-  "palabras_reservadas": ["ENTRADA", "AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"],
+  "palabras_reservadas": ["ENTRADA", "SALIDA", "AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"],
   "comandos": [
     {
       "palabras": ["ANALIZAR"],

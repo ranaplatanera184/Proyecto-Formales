@@ -97,17 +97,13 @@ class _Contexto:
 
     def __init__(self, modelo, reglas):
         self.reglas = reglas
-        self.entradas = set(modelo.entradas)
+        # Hojas de las expresiones: las entradas y las constantes 0 y 1.
+        self.entradas = set(modelo.entradas) | {"0", "1"}
         self.compuertas = {c["salida"]: c for c in modelo.compuertas}
 
-        # Señales que alimentan alguna compuerta: las que no aparecen aquí son
-        # salidas finales, igual que en semantico.expresiones_booleanas().
-        usadas = set()
-        for compuerta in modelo.compuertas:
-            usadas.update(compuerta["entradas"])
-        self.salidas_finales = [
-            c["salida"] for c in modelo.compuertas if c["salida"] not in usadas
-        ]
+        # Las salidas del circuito: las declaradas con SALIDA o, si no hay,
+        # las señales que no alimentan a ninguna compuerta.
+        self.salidas_finales = modelo.salidas_finales()
 
         # `_expandida` guarda el texto ya expandido de cada señal; `_cuenta` lleva
         # el número de expansiones realmente calculadas.
