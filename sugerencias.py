@@ -8,10 +8,16 @@
 # ============================================================================
 
 
-def distancia(a, b):
-    """Mínimo de inserciones, borrados y sustituciones para convertir a en b."""
+def distancia(a, b, tope=None):
+    """Mínimo de inserciones, borrados y sustituciones para convertir a en b.
+
+    Con `tope`, el cálculo se corta en cuanto la distancia ya no puede bajar
+    de ese valor y se devuelve tope + 1 (no interesa cuánto más lejos está).
+    """
     if a == b:
         return 0
+    if tope is not None and abs(len(a) - len(b)) > tope:
+        return tope + 1
     if len(a) < len(b):
         a, b = b, a
     if not b:
@@ -26,6 +32,8 @@ def distancia(a, b):
                 actual[j - 1] + 1,                  # insertar cb
                 anterior[j - 1] + (ca != cb),       # sustituir (o igual)
             ))
+        if tope is not None and min(actual) > tope:
+            return tope + 1
         anterior = actual
     return anterior[-1]
 
@@ -43,11 +51,16 @@ def mas_parecido(palabra, candidatos, ignorar_mayusculas=False):
     normal = (lambda t: t.upper()) if ignorar_mayusculas else (lambda t: t)
     objetivo = normal(palabra)
 
+    # Más allá de esta distancia ninguna regla de abajo sugeriría nada, así
+    # que se corta el cálculo: con miles de señales o nombres larguísimos la
+    # validación al escribir seguía siendo instantánea.
+    # Una errata de más de 6 ediciones ya no es una errata útil de sugerir.
+    tope = min(max(2, len(palabra) // 2), 6)
     distancias = []
     for candidato in dict.fromkeys(candidatos):
         if candidato == palabra:
             continue
-        distancias.append((distancia(objetivo, normal(candidato)), candidato))
+        distancias.append((distancia(objetivo, normal(candidato), tope), candidato))
     if not distancias:
         return None
 

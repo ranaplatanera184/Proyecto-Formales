@@ -32,6 +32,7 @@ registro = logging.getLogger("jace.api")
 
 # Máximo de filas que devuelve una sola petición a /tabla.
 MAXIMO_FILAS_POR_PETICION = 4096
+MAXIMO_CELDAS_POR_PETICION = 200_000
 
 VERSION = "2.1"
 
@@ -235,8 +236,11 @@ def tabla_por_bloques(request: TablaRequest):
 
         total = 2 ** len(semantico.entradas)
         desde = min(request.desde, total)
-        cantidad = min(request.cantidad, MAXIMO_FILAS_POR_PETICION, total - desde)
         senales = semantico.senales_tabla()
+        # Con miles de columnas se piden menos filas por bloque (como mucho
+        # MAXIMO_CELDAS_POR_PETICION celdas), para que la respuesta siga siendo ligera.
+        por_celdas = max(1, MAXIMO_CELDAS_POR_PETICION // max(1, len(senales)))
+        cantidad = min(request.cantidad, MAXIMO_FILAS_POR_PETICION, por_celdas, total - desde)
         return {
             "exito": True,
             "señales": senales,

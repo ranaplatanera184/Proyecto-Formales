@@ -59,8 +59,25 @@ LIMITE_CELDAS = 2 ** 18
 # El diagrama esquemático se omite en circuitos muy grandes (schemdraw tarda
 # decenas de segundos y produce SVG de varios MB). Se cuentan compuertas y
 # conexiones (pines de entrada).
-LIMITE_DIAGRAMA_COMPUERTAS = _entero_de_entorno("JACE_LIMITE_DIAGRAMA", 300)
+LIMITE_DIAGRAMA_COMPUERTAS = _entero_de_entorno("JACE_LIMITE_DIAGRAMA", 100)
 LIMITE_DIAGRAMA_PINES = 4 * LIMITE_DIAGRAMA_COMPUERTAS
+
+
+# Topes de diagnósticos: un archivo con miles de errores no debe producir
+# respuestas de decenas de MB (el parser ya se detiene en 50).
+MAXIMO_ERRORES_LEXICOS = 50
+MAXIMO_DIAGNOSTICOS_SEMANTICOS = 100
+
+
+def _con_tope(lista, que):
+    """Los primeros MAXIMO_DIAGNOSTICOS_SEMANTICOS y un aviso con el resto."""
+    if len(lista) <= MAXIMO_DIAGNOSTICOS_SEMANTICOS:
+        return lista
+    ultimo = lista[MAXIMO_DIAGNOSTICOS_SEMANTICOS - 1]
+    resto = len(lista) - MAXIMO_DIAGNOSTICOS_SEMANTICOS
+    return lista[:MAXIMO_DIAGNOSTICOS_SEMANTICOS] + [diag.Diagnostico(
+        "semántico", ultimo.severidad, ultimo.linea, ultimo.columna,
+        f"hay {resto} {que} más que no se muestran", "corrige estos y vuelve a analizar")]
 
 
 def normalizar_texto(texto):
@@ -251,8 +268,20 @@ class GestorReglas:
 
             # 2. FASE SINTACTICA (con recuperación de errores). Los errores
             #    léxicos y sintácticos se reportan juntos, por posición.
+            if not tokens_parser and not errores_lexicos:
+                # Solo comentarios: el mismo diagnóstico que da la API.
+                errores_lexicos = [diag.error(
+                    "léxico", 1, 1, "el circuito está vacío",
+                    "escribe un circuito que empiece con ENTRADA[...]")]
+            elif len(errores_lexicos) > MAXIMO_ERRORES_LEXICOS:
+                ultimo = errores_lexicos[MAXIMO_ERRORES_LEXICOS - 1]
+                errores_lexicos = errores_lexicos[:MAXIMO_ERRORES_LEXICOS] + [diag.error(
+                    "léxico", ultimo.linea, ultimo.columna,
+                    f"hay demasiados errores léxicos; se muestran los primeros "
+                    f"{MAXIMO_ERRORES_LEXICOS}", "corrige estos y vuelve a analizar")]
             parser = AnalisisSintactico(tokens_parser, gestorReglas=self)
-            estructura, errores_sintacticos = parser.analizar()
+            estructura, errores_sintacticos = (parser.analizar() if tokens_parser
+                                               else (None, []))
             diagnosticos.extend(sorted(errores_lexicos + errores_sintacticos,
                                        key=lambda d: (d.linea or 0, d.columna or 0)))
             if errores_lexicos or errores_sintacticos:
@@ -282,8 +311,9 @@ class GestorReglas:
             resultado["temporales"] = semantico.temporales()
             resultado["tabla_simbolos"] = semantico.tabla_simbolos()
             errores_semanticos = semantico.diagnosticos()
-            diagnosticos.extend(errores_semanticos)
-            diagnosticos.extend(semantico.diagnosticos_advertencia())
+            diagnosticos.extend(_con_tope(errores_semanticos, "errores semánticos"))
+            diagnosticos.extend(_con_tope(semantico.diagnosticos_advertencia(),
+                                          "advertencias"))
 
             if not errores_semanticos:
                 # La validación rápida (con_resultados=False) termina aquí:

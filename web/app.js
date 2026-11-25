@@ -119,6 +119,8 @@ function aplicarTema(color) {
     document.documentElement.style.setProperty(nombre, valor);
   }
   document.documentElement.dataset.tema = oscuro ? "oscuro" : "claro";
+  // Barras de desplazamiento y controles nativos acordes al tema.
+  document.documentElement.style.colorScheme = oscuro ? "dark" : "light";
 
   $("#muestraFondo").style.background = color;
   $("#botonFondo").title = `Fondo: ${color}`;
@@ -179,6 +181,11 @@ function dibujarPresets(fondos) {
     contenedor.appendChild(boton);
   }
   marcarPresetActivo();
+  // Si el popover se abrió (por ejemplo desde #/background) antes de que
+  // existieran los presets, el foco entra ahora.
+  if (!$("#popoverFondo").classList.contains("oculto")) {
+    (document.querySelector(".preset.activo") || document.querySelector(".preset"))?.focus();
+  }
 }
 
 function marcarPresetActivo() {
@@ -233,7 +240,17 @@ async function validar() {
   // Se envía el texto tal cual (sin trim): así los números de línea que
   // devuelve el compilador coinciden con los del editor.
   const codigo = $("#codigo").value;
-  if (!codigo.trim()) return;
+  if (!codigo.trim()) {
+    // Editor vacío: no quedan diagnósticos de un texto que ya no existe.
+    estado.tokens = [];
+    estado.ast = null;
+    estado.tablaSimbolos = [];
+    pintarTokens(estado.tokens);
+    pintarAst();
+    pintarTablaSimbolos();
+    pintarDiagnosticos([], { automatico: true });
+    return;
+  }
 
   // Se cancela la validación anterior si todavía no ha respondido.
   if (estado.controladorValidacion) estado.controladorValidacion.abort();
@@ -300,7 +317,7 @@ async function analizar() {
   const codigo = $("#codigo").value;
 
   if (!codigo.trim()) {
-    avisar("Escribe un circuito o pulsa «Cargar ejemplo».", true);
+    avisar("Escribe un circuito o elige uno en «Ejemplos».", true);
     return;
   }
 
@@ -716,7 +733,8 @@ function ajustarDiagrama() {
   if (!svg || !ancho || !alto) return;
 
   const natural = tamañoNatural(svg);
-  const k = Math.min(1, (ancho - 24) / natural.ancho);
+  // Cabe a lo ancho y a lo alto del visor (que tiene altura acotada).
+  const k = Math.min(1, (ancho - 24) / natural.ancho, (alto - 24) / natural.alto);
   estado.zoom.k = limitar(k, ZOOM_MINIMO, ZOOM_MAXIMO);
   estado.zoom.tx = (ancho - natural.ancho * estado.zoom.k) / 2;
   estado.zoom.ty = (alto - natural.alto * estado.zoom.k) / 2;

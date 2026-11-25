@@ -138,7 +138,11 @@ def leer_circuito(ruta):
             return archivo.read(), None
     except UnicodeDecodeError:
         return None, f"el archivo '{ruta}' no está en UTF-8"
+    except IsADirectoryError:
+        return None, f"'{ruta}' es una carpeta, no un archivo"
     except OSError as error:
+        if os.path.isdir(ruta):
+            return None, f"'{ruta}' es una carpeta, no un archivo"
         return None, f"no se pudo leer '{ruta}': {error.strerror}"
 
 
@@ -189,8 +193,13 @@ def compilar_archivo(argumentos, parser):
         if argumentos.testbench:
             codigo += "\n" + (verilog["testbench"] or f"// {verilog['aviso_testbench']}\n")
         if argumentos.salida:
-            with open(argumentos.salida, "w", encoding="utf-8") as archivo:
-                archivo.write(codigo)
+            try:
+                with open(argumentos.salida, "w", encoding="utf-8") as archivo:
+                    archivo.write(codigo)
+            except OSError as error:
+                print(f"error: no se pudo escribir '{argumentos.salida}': "
+                      f"{error.strerror or error}", file=sys.stderr)
+                return USO_INCORRECTO
             print(f"\nVerilog guardado en {argumentos.salida}")
         else:
             print(consola.seccion("VERILOG", codigo.rstrip(), pintar))

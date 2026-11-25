@@ -33,6 +33,7 @@ ID             ::= letra (letra | dígito | "_")*        (solo ASCII)
 ```
 
 - `#` inicia un comentario hasta el final de la línea; las líneas vacías se ignoran.
+- Una instrucción puede ocupar varias líneas (los saltos de línea son espacios).
 - Las palabras reservadas no distinguen mayúsculas (`and` = `AND`), salvo
   `SALIDA`, que solo es reservada en mayúsculas y seguida de `[`: los circuitos
   antiguos que llaman `salida` a una señal siguen siendo válidos.
@@ -174,8 +175,11 @@ python jace_app.py --sin-navegador --puerto 8765
   «Generar tabla» y pide las filas por bloques a `/tabla`, que calcula solo las
   filas pedidas a partir de su índice binario. El CSV también se exporta por
   bloques.
-- **Diagrama**: se omite por encima de 300 compuertas o 1200 conexiones
-  (`JACE_LIMITE_DIAGRAMA`).
+- **Diagrama**: se omite por encima de 100 compuertas o 400 conexiones
+  (`JACE_LIMITE_DIAGRAMA`): schemdraw tarda varios segundos con más.
+- **Diagnósticos**: como máximo 50 errores sintácticos, 50 léxicos y 100
+  semánticos o advertencias por análisis; las sugerencias se calculan para las
+  primeras 50 señales no definidas.
 - **Expresión expandida**: se omite si supera 2000 caracteres. Se calcula la
   longitud antes de construirla, así que no crece de forma exponencial.
 

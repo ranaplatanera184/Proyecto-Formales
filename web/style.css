@@ -2,7 +2,7 @@
   color-scheme: light;
   --fondo: #f3f6ed;
   --texto: #26372c;
-  --tenue: #738175;
+  --tenue: #5d6b5f;
   --panel: rgba(255, 255, 255, .86);
   --panel-solido: #fffefa;
   --panel-borde: rgba(54, 91, 61, .14);
@@ -475,7 +475,7 @@ main {
 .sobrelinea {
   display: block;
   margin-bottom: 2px;
-  color: #829184;
+  color: var(--tenue);
   font-size: .69rem;
   font-weight: 750;
   letter-spacing: .09em;
@@ -670,7 +670,7 @@ main {
   padding: 7px 7px;
   border-color: transparent;
   border-radius: 9px;
-  color: #718073;
+  color: var(--tenue);
   background: transparent;
   box-shadow: none;
   font-size: .78rem;
@@ -1040,18 +1040,22 @@ tbody tr:last-child td {
 
 .visor {
   position: relative;
-  min-height: 440px;
-  flex: 1 1 auto;
-  overflow: auto;
+  height: clamp(360px, 62vh, 640px);
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  touch-action: none;
   border: 1px solid rgba(54, 91, 61, .12);
   border-radius: 15px;
   background-color: var(--fondo);
 }
 
 .lienzo {
-  min-width: 100%;
-  min-height: 100%;
-  padding: 12px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  transform-origin: 0 0;
 }
 
 .visor .vacio {
@@ -1269,16 +1273,6 @@ tbody tr:last-child td {
   text-align: left;
 }
 
-.presets button::before {
-  width: 31px;
-  height: 31px;
-  flex: 0 0 auto;
-  border: 1px solid rgba(44, 66, 46, .14);
-  border-radius: 10px;
-  background: var(--preset-color, #e9f1e4);
-  content: "";
-}
-
 .presets button.activo,
 .presets button[aria-pressed="true"] {
   border-color: #6c9a70;
@@ -1331,6 +1325,7 @@ tbody tr:last-child td {
 }
 
 .modal-visor {
+  height: auto;
   min-height: 0;
   flex: 1 1 auto;
   border-radius: 0 0 14px 14px;
@@ -1905,6 +1900,10 @@ td.cero {
   gap: 14px;
 }
 
+.columnas-intermedio > * {
+  min-width: 0;
+}
+
 .bloque-intermedio h3 {
   margin-bottom: 8px;
 }
@@ -2098,6 +2097,11 @@ main {
   gap: 16px;
 }
 
+.hero-visual > svg {
+  -webkit-mask-image: linear-gradient(90deg, transparent 62%, #000 78%);
+  mask-image: linear-gradient(90deg, transparent 62%, #000 78%);
+}
+
 .hero-jace {
   height: clamp(112px, 10.5vw, 152px);
   min-height: 0;
@@ -2147,16 +2151,20 @@ main {
 /* Editor con números de línea ------------------------------------------- */
 .editor-codigo {
   display: flex;
-  min-height: 300px;
+  height: clamp(300px, 44vh, 520px);
+  min-height: 200px;
   overflow: hidden;
+  resize: vertical;
   border: 1px solid var(--panel-borde);
   border-radius: 10px;
   background: rgba(248, 251, 246, .95);
 }
 
 .editor-codigo textarea {
-  min-height: 300px;
+  height: 100%;
+  min-height: 0;
   flex: 1 1 auto;
+  resize: none;
   border: 0;
   border-radius: 0;
   overflow: auto;
@@ -2168,6 +2176,7 @@ main {
 }
 
 .margen {
+  min-height: 0;
   flex: 0 0 auto;
   min-width: 3.1em;
   overflow: hidden;
@@ -2244,6 +2253,15 @@ main {
 }
 
 /* Menú de ejemplos ---------------------------------------------------------- */
+.editor {
+  position: relative;
+  z-index: 3;
+}
+
+.editor-acciones {
+  position: relative;
+}
+
 .submenu-ejemplos {
   right: auto;
   left: 0;
@@ -2379,6 +2397,14 @@ main {
     display: none;
   }
 
+  #menuEjemplos {
+    position: static;
+  }
+
+  .submenu-ejemplos {
+    width: 100%;
+  }
+
   .margen {
     padding-top: 13px;
     font-size: .84rem;
@@ -2403,6 +2429,23 @@ main {
 
 :root[data-tema="oscuro"] .boton-fondo {
   color: #c5d5c6;
+}
+
+:root[data-tema="oscuro"] kbd {
+  border-color: var(--panel-borde);
+  color: #d0dfd0;
+  background: #1b2a22;
+}
+
+:root[data-tema="oscuro"] .primario,
+:root[data-tema="oscuro"] .primario:hover:not(:disabled) {
+  border-color: var(--acento);
+  color: #0d1a10;
+  background: var(--acento);
+}
+
+:root[data-tema="oscuro"] .personalizado label {
+  color: var(--tenue);
 }
 
 @media (prefers-reduced-motion: reduce) {

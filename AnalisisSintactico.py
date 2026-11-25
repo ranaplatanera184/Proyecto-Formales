@@ -343,7 +343,9 @@ class AnalisisSintactico:
     def _compuerta(self, profundidad=0):
         """<compuerta> ::= NOMBRE '[' <argumento> (',' <argumento>)* ']'."""
         token = self.actual()
-        if profundidad > MAXIMO_ANIDAMIENTO:
+        # La compuerta exterior es el nivel 0: se admiten MAXIMO_ANIDAMIENTO
+        # compuertas en total, una dentro de otra.
+        if profundidad >= MAXIMO_ANIDAMIENTO:
             raise self._fallo_en(token,
                                  f"hay más de {MAXIMO_ANIDAMIENTO} compuertas anidadas una "
                                  "dentro de otra",
@@ -403,6 +405,11 @@ class AnalisisSintactico:
         """Mensaje cuando una instrucción no empieza con una compuerta."""
         compuertas = ", ".join(sorted(self.nombres_compuertas))
         if token.token == "PALABRA RESERVADA" and token.valor == "ENTRADA":
+            if not self._hubo_entrada:
+                return self._fallo_en(token,
+                                      "se esperaba una compuerta y llegó ENTRADA: la "
+                                      "declaración ENTRADA debe ser la primera del circuito",
+                                      "mueve ENTRADA[...] al principio, antes de SALIDA")
             return self._fallo_en(token,
                                   "se esperaba una compuerta y llegó ENTRADA: solo puede "
                                   "haber una declaración ENTRADA, al inicio del circuito",
@@ -415,6 +422,10 @@ class AnalisisSintactico:
         if token.token == "IDENTIFICADOR" and self.es(self.siguiente(), "CORCHETE ABRE"):
             return self._compuerta_desconocida(token)
         if fin_anterior is not None and token.linea == fin_anterior.linea:
+            if self._ultima_fue_declaracion:
+                return self._fallo_en(token,
+                                      f"sobra {describir(token)} al final de la declaración",
+                                      "la declaración termina en su ']'")
             return self._fallo_en(token,
                                   f"sobra {describir(token)} al final de la instrucción",
                                   "cada instrucción termina con '-> salida'")
@@ -445,8 +456,11 @@ class AnalisisSintactico:
 
         entradas = None
         salidas = None
+        self._hubo_entrada = False
+        self._ultima_fue_declaracion = True
         primero = self.actual()
         if primero.token == "PALABRA RESERVADA" and primero.valor == "ENTRADA":
+            self._hubo_entrada = True
             try:
                 entradas = self._declaracion("ENTRADA")
             except _ErrorSintactico as error:
@@ -478,6 +492,7 @@ class AnalisisSintactico:
             try:
                 instrucciones.append(self._instruccion(fin_anterior))
                 fin_anterior = self.anterior()
+                self._ultima_fue_declaracion = False
             except _ErrorSintactico as error:
                 self._registrar(error)
                 self._sincronizar(error.diagnostico.linea)

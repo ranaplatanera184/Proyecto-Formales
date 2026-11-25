@@ -108,6 +108,9 @@ def _camino_de_ciclo(inicio, componente, sucesores):
     return [inicio]
 
 
+# Señales no definidas distintas que reciben sugerencia "¿quisiste decir…?".
+MAXIMO_SUGERENCIAS = 50
+
 # Longitud máxima del texto del campo legado "expresiones".
 LIMITE_EXPRESION_LEGADA = 100_000
 
@@ -261,13 +264,19 @@ class AnalizadorSemantico:
                                               f"{compuerta['linea']}")
 
         # 3. Toda señal usada como entrada debe estar definida.
-        candidatos = [s for s in list(self.entradas) + [c["salida"] for c in self.compuertas]
-                      if not s.startswith("_")]
+        candidatos = list(dict.fromkeys(
+            s for s in list(self.entradas) + [c["salida"] for c in self.compuertas]
+            if not s.startswith("_")))
+        sugeridas = {}
         for compuerta in self.compuertas:
             for k, senal in enumerate(compuerta["entradas"]):
                 if senal not in definidas:
                     linea, columna = self._pos_referencia(compuerta, k)
-                    parecida = mas_parecido(senal, candidatos)
+                    # Como mucho MAXIMO_SUGERENCIAS señales distintas reciben
+                    # sugerencia (cada una cuesta comparar con todas).
+                    if senal not in sugeridas and len(sugeridas) < MAXIMO_SUGERENCIAS:
+                        sugeridas[senal] = mas_parecido(senal, candidatos)
+                    parecida = sugeridas.get(senal)
                     errores.append(diag.error(
                         "semántico", linea, columna,
                         f"la señal {senal} no está definida",
@@ -340,8 +349,10 @@ class AnalizadorSemantico:
         # Una misma señal conectada dos veces a la misma compuerta.
         for compuerta in self.compuertas:
             vistas_pin = set()
+            avisadas = set()
             for k, senal in enumerate(compuerta["entradas"]):
-                if senal in vistas_pin and senal not in CONSTANTES:
+                if senal in vistas_pin and senal not in CONSTANTES and senal not in avisadas:
+                    avisadas.add(senal)
                     linea, columna = self._pos_referencia(compuerta, k)
                     advertencias.append(diag.advertencia(
                         "semántico", linea, columna,
@@ -470,6 +481,9 @@ class AnalizadorSemantico:
                 continue
             camino = _camino_de_ciclo(inicio, set(componente), consumidores)
             senales = [self.compuertas[k]["salida"] for k in camino]
+            if len(senales) > 12:
+                # Un ciclo de miles de señales daría un mensaje ilegible.
+                senales = senales[:6] + [f"… ({len(senales) - 10} señales más) …"] + senales[-4:]
             senales.append(senales[0])
             linea, columna = self._pos_salida(self.compuertas[inicio])
             errores.append(diag.error(
