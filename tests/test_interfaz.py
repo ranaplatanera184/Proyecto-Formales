@@ -252,12 +252,15 @@ def test_validar_devuelve_errores():
 
 
 def test_validar_reporta_error_semantico_con_linea():
-    """El frontend usa 'Error <tipo> línea N:' para el salto al editor."""
+    """El frontend usa 'Error <tipo> línea N, columna C:' para el salto al editor.
+
+    Desde la fase 2 los errores semánticos llevan la columna real de la señal
+    (antes la web inventaba la del primer token de la línea)."""
     datos = cliente().post("/validar",
                            json={"codigo": "ENTRADA[a]\nAND[a, z] -> x"}).json()
     assert datos["exito"] is False
     assert datos["errores"] == [
-        "Error semántico línea 2: la señal z no está definida"]
+        "Error semántico línea 2, columna 8: la señal z no está definida"]
 
 
 def test_validar_circuito_valido():
@@ -279,7 +282,7 @@ def test_validar_devuelve_advertencias_sin_invalidar_circuito():
     assert datos["exito"] is True
     assert datos["errores"] == []
     assert datos["advertencias"] == [
-        "Advertencia línea 1: la entrada b no se utiliza"
+        "Advertencia línea 1, columna 12: la entrada b no se utiliza"
     ]
 
 
@@ -315,7 +318,7 @@ def test_comentarios_conservan_el_numero_de_linea():
     codigo = "# titulo\nENTRADA[a, b]\n# mitad\nXOR[a, z] -> x"
     datos = cliente().post("/validar", json={"codigo": codigo}).json()
     assert datos["errores"] == [
-        "Error semántico línea 4: la señal z no está definida"]
+        "Error semántico línea 4, columna 8: la señal z no está definida"]
     assert datos["tokens"][-1]["linea"] == 4
 
 

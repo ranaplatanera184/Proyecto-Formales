@@ -56,7 +56,10 @@ def test_entrada_vacia():
         parser.construir_circuito()
         assert False, "Debería fallar"
     except SyntaxError as e:
-        assert "se esperaba IDENTIFICADOR" in str(e)
+        # Fase 2 (C2): el mensaje ya no usa el nombre interno del token
+        # ("se esperaba IDENTIFICADOR"), sino que dice qué falta.
+        assert "ENTRADA necesita al menos un nombre de entrada" in str(e)
+        assert "Error sintáctico línea 1, columna 9" in str(e)
 
 
 def test_falta_flecha():

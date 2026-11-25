@@ -30,14 +30,14 @@ def test_los_comentarios_y_lineas_vacias_no_corren_los_errores():
     resultado = _analizar(codigo)
     assert resultado["exito"] is False
     assert resultado["errores"] == [
-        "Error semántico línea 4: la señal z no está definida"]
+        "Error semántico línea 4, columna 8: la señal z no está definida"]
 
 
 def test_las_lineas_iniciales_en_blanco_no_corren_los_errores():
     codigo = "\n\nENTRADA[a]\nNOT[a] -> x\nAND[x, z] -> y"
     resultado = _analizar(codigo)
     assert resultado["errores"] == [
-        "Error semántico línea 5: la señal z no está definida"]
+        "Error semántico línea 5, columna 8: la señal z no está definida"]
 
 
 # ---------------------------------------------------------------------------

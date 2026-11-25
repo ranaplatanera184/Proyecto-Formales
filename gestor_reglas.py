@@ -15,7 +15,7 @@ import traceback
 
 from rutas import cargar_reglas, ubicar_reglas
 
-from ImplementacionAnalisisLexico import tokenizar_circuito
+from ImplementacionAnalisisLexico import analizar_lexico
 from AnalisisSintactico import AnalisisSintactico
 from semantico import AnalizadorSemantico, generar_dot
 from expresiones import generar_expresiones
@@ -190,22 +190,25 @@ class GestorReglas:
         estructura = None
 
         if not texto:
-            diagnosticos.append(diag.error("léxico", 1, 1, "el circuito está vacío"))
+            diagnosticos.append(diag.error(
+                "léxico", 1, 1, "el circuito está vacío",
+                "escribe un circuito que empiece con ENTRADA[...]"))
         else:
-            # 1. FASE LEXICA.
-            tokens, errores_lexicos = tokenizar_circuito(
+            # 1. FASE LEXICA. Los lexemas inválidos dejan un comodín para que
+            #    la fase sintáctica pueda revisar el resto del archivo.
+            tokens, tokens_parser, errores_lexicos = analizar_lexico(
                 texto, palabras_reservadas=self.obtener_palabras_reservadas())
-            diagnosticos.extend(diag.desde_texto(e, "léxico") for e in errores_lexicos)
 
-            # 2. FASE SINTACTICA.
-            if not errores_lexicos:
-                try:
-                    parser = AnalisisSintactico(tokens, gestorReglas=self)
-                    estructura = parser.construir_circuito()
-                    resultado["ast"] = estructura["ast"]
-                except SyntaxError as error:
-                    diagnosticos.append(diag.desde_texto(str(error), "sintáctico"))
-                    estructura = None
+            # 2. FASE SINTACTICA (con recuperación de errores). Los errores
+            #    léxicos y sintácticos se reportan juntos, por posición.
+            parser = AnalisisSintactico(tokens_parser, gestorReglas=self)
+            estructura, errores_sintacticos = parser.analizar()
+            diagnosticos.extend(sorted(errores_lexicos + errores_sintacticos,
+                                       key=lambda d: (d.linea or 0, d.columna or 0)))
+            if errores_lexicos or errores_sintacticos:
+                estructura = None
+            else:
+                resultado["ast"] = estructura["ast"]
 
         resultado["tokens"] = [t.to_json() for t in tokens]
 
@@ -218,13 +221,12 @@ class GestorReglas:
                 estructura["entradas"],
                 estructura["compuertas"],
                 self.reglas["compuertas"],
-                linea_entrada=estructura["linea_entrada"])
+                linea_entrada=estructura["linea_entrada"],
+                pos_entradas=estructura.get("pos_entradas"))
             resultado["tabla_simbolos"] = semantico.tabla_simbolos()
-            errores_semanticos = semantico.revisar()
-            diagnosticos.extend(diag.desde_texto(e, "semántico")
-                                for e in errores_semanticos)
-            diagnosticos.extend(diag.desde_texto(a, "semántico")
-                                for a in semantico.advertencias())
+            errores_semanticos = semantico.diagnosticos()
+            diagnosticos.extend(errores_semanticos)
+            diagnosticos.extend(semantico.diagnosticos_advertencia())
 
             if not errores_semanticos:
                 # La validación rápida (con_resultados=False) termina aquí:

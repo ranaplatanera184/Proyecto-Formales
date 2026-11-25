@@ -6,7 +6,15 @@
 #   2. Una señal no puede definirse dos veces (ni colisionar con una entrada).
 #   3. Toda señal usada debe estar definida (como entrada o como salida de
 #      alguna compuerta). Se permite referenciar señales definidas después.
-#   4. No debe haber ciclos en el grafo de dependencias (detección con DFS).
+#   4. No debe haber ciclos en el grafo de dependencias: se reporta uno por
+#      cada componente fuertemente conexa (algoritmo de Tarjan iterativo).
+#
+# Cada error y advertencia lleva la línea y la columna exactas de la señal o
+# la compuerta que lo provoca, y una sugerencia cuando hay una obvia (por
+# ejemplo "¿quisiste decir 'z'?" con la distancia de Levenshtein).
+#
+# Advertencias: entradas sin usar, la misma señal conectada dos veces a una
+# compuerta y compuertas muertas (que no llegan a ninguna salida declarada).
 #
 # Si el circuito es correcto, también calcula:
 #   - Orden de evaluación (orden topológico).
@@ -20,17 +28,105 @@ from collections import deque
 
 import graphviz
 
-from evaluador import Programa
+from evaluador import Programa, CONSTANTES
+from sugerencias import mas_parecido
+import diagnosticos as diag
+
+
+def _orden_posicion(diagnostico):
+    """Clave para ordenar diagnósticos por línea y columna."""
+    return (diagnostico.linea or 0, diagnostico.columna or 0)
+
+
+def _componentes_fuertes(nodos, sucesores):
+    """Componentes fuertemente conexas (Tarjan, sin recursión)."""
+    indice = {}
+    bajo = {}
+    en_pila = set()
+    pila = []
+    componentes = []
+    contador = 0
+
+    for raiz in nodos:
+        if raiz in indice:
+            continue
+        indice[raiz] = bajo[raiz] = contador
+        contador += 1
+        pila.append(raiz)
+        en_pila.add(raiz)
+        trabajo = [(raiz, iter(sucesores[raiz]))]
+
+        while trabajo:
+            nodo, vecinos = trabajo[-1]
+            avanzo = False
+            for vecino in vecinos:
+                if vecino not in indice:
+                    indice[vecino] = bajo[vecino] = contador
+                    contador += 1
+                    pila.append(vecino)
+                    en_pila.add(vecino)
+                    trabajo.append((vecino, iter(sucesores[vecino])))
+                    avanzo = True
+                    break
+                if vecino in en_pila:
+                    bajo[nodo] = min(bajo[nodo], indice[vecino])
+            if avanzo:
+                continue
+
+            trabajo.pop()
+            if trabajo:
+                padre = trabajo[-1][0]
+                bajo[padre] = min(bajo[padre], bajo[nodo])
+            if bajo[nodo] == indice[nodo]:
+                componente = []
+                while True:
+                    miembro = pila.pop()
+                    en_pila.discard(miembro)
+                    componente.append(miembro)
+                    if miembro == nodo:
+                        break
+                componentes.append(componente)
+
+    return componentes
+
+
+def _camino_de_ciclo(inicio, componente, sucesores):
+    """Un ciclo concreto que sale de `inicio` y vuelve a él (búsqueda en anchura)."""
+    padre = {inicio: None}
+    cola = deque([inicio])
+    while cola:
+        nodo = cola.popleft()
+        for vecino in sucesores[nodo]:
+            if vecino == inicio:
+                camino = [nodo]
+                while padre[camino[-1]] is not None:
+                    camino.append(padre[camino[-1]])
+                return camino[::-1]
+            if vecino in componente and vecino not in padre:
+                padre[vecino] = nodo
+                cola.append(vecino)
+    return [inicio]
+
+
+# Compuertas negadas que no son asociativas con N entradas.
+NO_ASOCIATIVAS = {"NAND", "NOR", "XNOR"}
 
 
 class AnalizadorSemantico:
 
     def __init__(self, entradas, compuertas, reglas_compuertas,
-                 linea_entrada=1):
+                 linea_entrada=1, pos_entradas=None, salidas_declaradas=None,
+                 pos_salidas=None):
         # Fase semántica: trabaja sobre la estructura construida por el parser.
         self.entradas = entradas
         self.compuertas = compuertas
         self.linea_entrada = linea_entrada
+        # Posición [línea, columna] de cada nombre de ENTRADA[...] (opcional:
+        # sin posiciones los mensajes solo llevan la línea).
+        self.pos_entradas = pos_entradas
+        # Salidas declaradas con SALIDA[...] (None si el circuito no las declara).
+        self.salidas_declaradas = salidas_declaradas
+        self.pos_salidas = pos_salidas
 
         # Aridad y operación de cada compuerta provienen de reglas.json.
         self.entradas_min = {}
@@ -41,25 +137,77 @@ class AnalizadorSemantico:
             self.entradas_max[regla["nombre"]] = regla["entradas_max"]
             self.operacion[regla["nombre"]] = regla["operacion"]
 
-        # Cachés de un análisis: el orden topológico y el circuito compilado.
+        # Cachés de un análisis: el orden topológico, el circuito compilado y
+        # los diagnósticos.
         self._orden = None
         self._programa = None
+        self._errores = None
+        self._advertencias = None
+
+    # ------------------------------------------------------------------
+    # Posiciones (línea y columna) de cada elemento del circuito
+    # ------------------------------------------------------------------
+    def _pos_entrada(self, indice):
+        if self.pos_entradas and indice < len(self.pos_entradas):
+            linea, columna = self.pos_entradas[indice]
+            return linea, columna
+        return self.linea_entrada, None
+
+    @staticmethod
+    def _pos_compuerta(compuerta):
+        return compuerta["linea"], compuerta.get("columna")
+
+    @staticmethod
+    def _pos_referencia(compuerta, k):
+        posiciones = compuerta.get("pos_entradas")
+        if posiciones and k < len(posiciones):
+            linea, columna = posiciones[k]
+            return linea, columna
+        return compuerta["linea"], None
+
+    @staticmethod
+    def _pos_salida(compuerta):
+        posicion = compuerta.get("pos_salida")
+        if posicion:
+            return posicion[0], posicion[1]
+        return compuerta["linea"], None
 
     # ------------------------------------------------------------------
     # Comprobaciones semánticas
     # ------------------------------------------------------------------
     def revisar(self):
         """Devuelve la lista de errores semánticos (vacía si todo es correcto)."""
+        return [d.texto() for d in self.diagnosticos()]
+
+    def advertencias(self):
+        """Devuelve advertencias que no invalidan el circuito."""
+        return [d.texto() for d in self.diagnosticos_advertencia()]
+
+    def diagnosticos(self):
+        """Errores semánticos como objetos Diagnostico, ordenados por posición."""
+        if self._errores is None:
+            self._errores = sorted(self._calcular_errores(), key=_orden_posicion)
+        return self._errores
+
+    def diagnosticos_advertencia(self):
+        """Advertencias como objetos Diagnostico, ordenadas por posición."""
+        if self._advertencias is None:
+            self._advertencias = sorted(self._calcular_advertencias(), key=_orden_posicion)
+        return self._advertencias
+
+    def _calcular_errores(self):
         errores = []
 
         # Una entrada repetida crea una declaración ambigua antes incluso de
         # analizar las conexiones de las compuertas.
         vistas = set()
-        for senal in self.entradas:
+        for i, senal in enumerate(self.entradas):
             if senal in vistas:
-                errores.append(
-                    f"Error semántico línea {self.linea_entrada}: "
-                    f"la entrada {senal} está declarada más de una vez")
+                linea, columna = self._pos_entrada(i)
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la entrada {senal} está declarada más de una vez",
+                    "borra la repetición en ENTRADA[...]"))
             vistas.add(senal)
 
         # 1. Aridad de las compuertas.
@@ -68,59 +216,141 @@ class AnalizadorSemantico:
             n = len(compuerta["entradas"])
             minimo = self.entradas_min.get(nombre, 1)
             maximo = self.entradas_max.get(nombre, 0)
+            linea, columna = self._pos_compuerta(compuerta)
 
             if minimo == maximo and maximo > 0 and n != minimo:
-                errores.append(
-                    f"Error semántico línea {compuerta['linea']}: "
-                    f"la compuerta {nombre} requiere exactamente {minimo} entrada(s)")
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la compuerta {nombre} requiere exactamente {minimo} entrada(s) "
+                    f"y recibió {n}",
+                    "NOT invierte una sola señal; para varias usa NAND o NOR"
+                    if nombre == "NOT" else None))
             elif n < minimo:
-                errores.append(
-                    f"Error semántico línea {compuerta['linea']}: "
-                    f"la compuerta {nombre} requiere al menos {minimo} entradas")
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la compuerta {nombre} requiere al menos {minimo} entradas "
+                    f"y recibió {n}",
+                    "agrega otra señal separada por coma"))
             elif maximo > 0 and n > maximo:
-                errores.append(
-                    f"Error semántico línea {compuerta['linea']}: "
-                    f"la compuerta {nombre} admite como máximo {maximo} entradas")
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la compuerta {nombre} admite como máximo {maximo} entradas "
+                    f"y recibió {n}"))
 
         # 2. Señales definidas: entradas más salidas de todas las compuertas.
         #    (Se recopilan primero para permitir referencias a señales que se
         #    definen más adelante en el circuito.)
-        definidas = set(self.entradas)
+        definidas = set(self.entradas) | set(CONSTANTES)
         primera_definicion = {s: "ENTRADA" for s in self.entradas}
-        hay_redefinicion = len(vistas) != len(self.entradas)
 
         for compuerta in self.compuertas:
             salida = compuerta["salida"]
             if salida in definidas:
-                hay_redefinicion = True
-                errores.append(
-                    f"Error semántico línea {compuerta['linea']}: "
-                    f"la señal {salida} ya está definida "
-                    f"(primera definición: {primera_definicion.get(salida, '?')})")
+                linea, columna = self._pos_salida(compuerta)
+                origen = primera_definicion.get(salida, "?")
+                errores.append(diag.error(
+                    "semántico", linea, columna,
+                    f"la señal {salida} ya está definida (primera definición: {origen})",
+                    "cada señal se define una sola vez: usa otro nombre para esta salida"))
             else:
                 definidas.add(salida)
-                primera_definicion[salida] = compuerta["compuerta"]
+                primera_definicion[salida] = (f"{compuerta['compuerta']} en la línea "
+                                              f"{compuerta['linea']}")
 
         # 3. Toda señal usada como entrada debe estar definida.
+        candidatos = [s for s in list(self.entradas) + [c["salida"] for c in self.compuertas]
+                      if not s.startswith("_")]
         for compuerta in self.compuertas:
-            for senal in compuerta["entradas"]:
+            for k, senal in enumerate(compuerta["entradas"]):
                 if senal not in definidas:
-                    errores.append(
-                        f"Error semántico línea {compuerta['linea']}: "
-                        f"la señal {senal} no está definida")
+                    linea, columna = self._pos_referencia(compuerta, k)
+                    parecida = mas_parecido(senal, candidatos)
+                    errores.append(diag.error(
+                        "semántico", linea, columna,
+                        f"la señal {senal} no está definida",
+                        f"¿quisiste decir '{parecida}'?" if parecida else
+                        "declárala en ENTRADA[...] o como salida de una compuerta"))
 
-        # 4. Detección de ciclos en el grafo de dependencias (DFS).
-        #    Si una señal está definida dos veces el grafo ya es ambiguo y el
-        #    error útil es la redefinición, no un ciclo derivado de ella.
-        if not hay_redefinicion:
-            ciclo = self._detectar_ciclo()
-            if ciclo is not None:
-                senales, linea = ciclo
-                camino = " → ".join(senales)
-                errores.append(
-                    f"Error semántico línea {linea}: ciclo detectado: {camino}")
+        # 4. Detección de ciclos. Siempre se ejecuta (aunque haya una señal
+        #    redefinida) usando la primera definición de cada señal, y se
+        #    reporta un ciclo por cada componente fuertemente conexa.
+        errores.extend(self._errores_de_ciclos())
 
         return errores
+
+    def _calcular_advertencias(self):
+        advertencias = []
+
+        usos = {senal for compuerta in self.compuertas for senal in compuerta["entradas"]}
+        vistas = set()
+        for i, senal in enumerate(self.entradas):
+            if senal in vistas:
+                continue
+            vistas.add(senal)
+            if senal not in usos:
+                linea, columna = self._pos_entrada(i)
+                advertencias.append(diag.advertencia(
+                    "semántico", linea, columna, f"la entrada {senal} no se utiliza",
+                    "quítala de ENTRADA[...] o conéctala a una compuerta"))
+
+        # Una misma señal conectada dos veces a la misma compuerta.
+        for compuerta in self.compuertas:
+            vistas_pin = set()
+            for k, senal in enumerate(compuerta["entradas"]):
+                if senal in vistas_pin and senal not in CONSTANTES:
+                    linea, columna = self._pos_referencia(compuerta, k)
+                    advertencias.append(diag.advertencia(
+                        "semántico", linea, columna,
+                        f"la señal {senal} está conectada dos veces a la misma "
+                        f"compuerta {compuerta['compuerta']}",
+                        "revisa si querías conectar otra señal"))
+                vistas_pin.add(senal)
+
+        # Compuertas muertas: no alcanzan ninguna salida del circuito.
+        for compuerta in self.compuertas_muertas():
+            linea, columna = self._pos_compuerta(compuerta)
+            advertencias.append(diag.advertencia(
+                "semántico", linea, columna,
+                f"la compuerta {compuerta['compuerta']} -> {compuerta['salida']} no "
+                "llega a ninguna salida del circuito",
+                "bórrala o conéctala a una salida declarada en SALIDA[...]"))
+
+        return advertencias
+
+    def salidas_finales(self):
+        """Salidas del circuito: las declaradas o, sin SALIDA, las señales que
+        no alimentan a ninguna compuerta (en orden de definición)."""
+        if self.salidas_declaradas:
+            return list(dict.fromkeys(self.salidas_declaradas))
+        usadas = set()
+        for compuerta in self.compuertas:
+            usadas.update(compuerta["entradas"])
+        return [c["salida"] for c in self.compuertas if c["salida"] not in usadas]
+
+    def compuertas_muertas(self):
+        """Compuertas cuya salida no llega a ninguna salida declarada.
+
+        Sin SALIDA[...] las salidas son justamente las señales que no se usan,
+        así que toda compuerta llega a alguna: solo hay compuertas muertas
+        cuando el circuito declara sus salidas.
+        """
+        if not self.salidas_declaradas:
+            return []
+        productora = {}
+        for compuerta in self.compuertas:
+            productora.setdefault(compuerta["salida"], compuerta)
+        vivas = set()
+        pendientes = [s for s in self.salidas_declaradas if s in productora]
+        while pendientes:
+            senal = pendientes.pop()
+            if senal in vivas:
+                continue
+            vivas.add(senal)
+            for entrada in productora[senal]["entradas"]:
+                if entrada in productora and entrada not in vivas:
+                    pendientes.append(entrada)
+        return [c for c in self.compuertas
+                if productora.get(c["salida"]) is c and c["salida"] not in vivas]
 
     def tabla_simbolos(self):
         """Describe cada señal declarada y las líneas donde se utiliza."""
@@ -130,6 +360,7 @@ class AnalizadorSemantico:
                 usos.setdefault(senal, []).append(compuerta["linea"])
 
         usadas = set(usos)
+        declaradas = set(self.salidas_declaradas or [])
         filas = []
         vistas = set()
         for senal in self.entradas:
@@ -148,96 +379,61 @@ class AnalizadorSemantico:
             if senal in vistas:
                 continue
             vistas.add(senal)
+            if compuerta.get("temporal"):
+                tipo = "temporal"
+            elif self.salidas_declaradas:
+                tipo = "salida" if senal in declaradas else "cable interno"
+            else:
+                tipo = "cable interno" if senal in usadas else "salida"
             filas.append({
                 "senal": senal,
-                "tipo": "cable interno" if senal in usadas else "salida",
+                "tipo": tipo,
                 "linea_declaracion": compuerta["linea"],
                 "lineas_uso": sorted(set(usos.get(senal, []))),
             })
 
         return filas
 
-    def advertencias(self):
-        """Devuelve advertencias que no invalidan el circuito."""
-        usos = {
-            senal
-            for compuerta in self.compuertas
-            for senal in compuerta["entradas"]
-        }
-        return [
-            f"Advertencia línea {self.linea_entrada}: "
-            f"la entrada {senal} no se utiliza"
-            for senal in dict.fromkeys(self.entradas)
-            if senal not in usos
-        ]
+    def _errores_de_ciclos(self):
+        """Un error por cada componente fuertemente conexa con un ciclo.
 
-    def _detectar_ciclo(self):
-        """Recorre el grafo de dependencias con DFS iterativo.
-
-        Devuelve ``(camino, linea)`` si hay un ciclo o ``None`` si el grafo es
-        acíclico. ``camino`` incluye la señal repetida al final (por ejemplo
-        ``["x", "y", "x"]``), así el mensaje muestra el bucle exacto.
-
-        Se usa una pila explícita en lugar de recursión para que una cadena de
-        miles de compuertas no agote la pila de llamadas de Python.
+        El grafo usa la primera definición de cada señal (las compuertas que
+        redefinen una señal no producen nada y no pueden cerrar un ciclo). Las
+        componentes se calculan con el algoritmo de Tarjan en versión
+        iterativa, para que una cadena de miles de compuertas no agote la
+        pila de llamadas de Python.
         """
-        n = len(self.compuertas)
-        if n == 0:
-            return None
-
-        # mapa: salida de una compuerta -> indice de esa compuerta.
-        mapa = {}
+        productora = {}
+        entradas = set(self.entradas)
         for i, compuerta in enumerate(self.compuertas):
-            mapa[compuerta["salida"]] = i
+            salida = compuerta["salida"]
+            if salida not in entradas and salida not in productora:
+                productora[salida] = i
+        nodos = sorted(set(productora.values()))
 
-        # succ[u] = compuertas de las que depende u. Una compuerta que se usa a
-        # sí misma también cuenta (antes se ignoraba y el ciclo no se veía).
-        succ = [[] for _ in range(n)]
-        for i, compuerta in enumerate(self.compuertas):
-            for senal in compuerta["entradas"]:
-                j = mapa.get(senal)
-                if j is not None:
-                    succ[i].append(j)
+        # consumidores[u]: compuertas (nodo) que usan la salida de u.
+        consumidores = {u: [] for u in nodos}
+        for v in nodos:
+            for senal in dict.fromkeys(self.compuertas[v]["entradas"]):
+                u = productora.get(senal)
+                if u is not None:
+                    consumidores[u].append(v)
 
-        color = [0] * n  # 0 = blanco (no visitado), 1 = gris (en el camino), 2 = negro
-
-        for inicio in range(n):
-            if color[inicio] != 0:
+        errores = []
+        for componente in _componentes_fuertes(nodos, consumidores):
+            inicio = min(componente)
+            if len(componente) == 1 and inicio not in consumidores[inicio]:
                 continue
-
-            color[inicio] = 1
-            camino = [inicio]
-            # Cada elemento es [nodo, siguiente vecino por visitar].
-            pila = [[inicio, 0]]
-
-            while pila:
-                u, indice = pila[-1]
-
-                if indice < len(succ[u]):
-                    v = succ[u][indice]
-                    pila[-1][1] += 1
-
-                    if color[v] == 1:
-                        # v ya está en el camino: el ciclo va de v hasta u y
-                        # vuelve a v.
-                        desde = camino.index(v)
-                        senales = [self.compuertas[k]["salida"]
-                                   for k in camino[desde:]]
-                        senales.append(self.compuertas[v]["salida"])
-                        return senales, self.compuertas[v]["linea"]
-
-                    if color[v] == 0:
-                        color[v] = 1
-                        camino.append(v)
-                        pila.append([v, 0])
-                    continue
-
-                # Sin vecinos pendientes: el nodo queda terminado.
-                color[u] = 2
-                pila.pop()
-                camino.pop()
-
-        return None
+            camino = _camino_de_ciclo(inicio, set(componente), consumidores)
+            senales = [self.compuertas[k]["salida"] for k in camino]
+            senales.append(senales[0])
+            linea, columna = self._pos_salida(self.compuertas[inicio])
+            errores.append(diag.error(
+                "semántico", linea, columna,
+                f"ciclo detectado: {' → '.join(senales)}",
+                "un circuito combinacional no puede realimentarse: rompe el ciclo "
+                "usando otra señal"))
+        return errores
 
     # ------------------------------------------------------------------
     # Orden topológico
@@ -331,15 +527,11 @@ class AnalizadorSemantico:
     def expresiones_booleanas(self):
         """Expresión booleana equivalente de cada señal de salida que no es
         utilizada como entrada de otra compuerta."""
-        entradas_set = set(self.entradas)
-
-        # Señales usadas como entrada por alguna compuerta.
-        usadas = set()
-        for c in self.compuertas:
-            usadas.update(c["entradas"])
+        # Hojas de la expresión: entradas y constantes.
+        hojas = set(self.entradas) | set(CONSTANTES)
 
         # Salidas "finales" del circuito.
-        salidas_finales = [c["salida"] for c in self.compuertas if c["salida"] not in usadas]
+        salidas_finales = self.salidas_finales()
 
         # Las expresiones se construyen en orden topológico (iterativo), no con
         # recursión: una cadena de miles de compuertas agotaría la pila.
@@ -347,15 +539,23 @@ class AnalizadorSemantico:
         for compuerta in self.orden_topologico():
             senal = compuerta["salida"]
 
-            if compuerta["compuerta"] == "NOT":
+            nombre = compuerta["compuerta"]
+            if nombre == "NOT":
                 entrada = compuerta["entradas"][0]
-                textos[senal] = f"NOT({entrada if entrada in entradas_set else textos[entrada]})"
+                textos[senal] = f"NOT({entrada if entrada in hojas else textos[entrada]})"
+            elif nombre in NO_ASOCIATIVAS and len(compuerta["entradas"]) > 2:
+                # "a NAND b NAND c" es ambiguo: NAND no es asociativa y
+                # (a NAND b) NAND c ≠ NAND[a, b, c]. Con 3 o más entradas se
+                # usa notación de función: NAND(a, b, c).
+                operandos = [entrada if entrada in hojas else textos[entrada]
+                             for entrada in compuerta["entradas"]]
+                textos[senal] = f"{nombre}({', '.join(operandos)})"
             else:
                 operandos = [
-                    entrada if entrada in entradas_set else f"({textos[entrada]})"
+                    entrada if entrada in hojas else f"({textos[entrada]})"
                     for entrada in compuerta["entradas"]
                 ]
-                textos[senal] = f" {compuerta['compuerta']} ".join(operandos)
+                textos[senal] = f" {nombre} ".join(operandos)
 
         return [(salida, textos[salida]) for salida in salidas_finales]
 
