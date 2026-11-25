@@ -65,10 +65,24 @@ def test_flecha_incompleta():
     assert "Error léxico" in errores[0]
 
 
-def test_comentario_no_es_token():
-    # Los comentarios (# ...) se filtran antes de la fase léxica; si un '#'
-    # llega al tokenizador, no pertenece al alfabeto del lenguaje.
+def test_comentario_al_final_de_la_linea_no_es_token():
     tokens, errores = tokenizar_circuito("ENTRADA[a] # comentario")
+    assert errores == []
+    assert [t.valor for t in tokens] == ["ENTRADA", "[", "a", "]"]
+
+
+def test_comentario_en_linea_completa_no_es_token():
+    tokens, errores = tokenizar_circuito("# solo una nota\nENTRADA[a]")
+    assert errores == []
+    assert tokens[0].linea == 2
+
+
+def test_el_alfabeto_es_solo_ascii():
+    # 'a²' no es un identificador válido: la '²' no pertenece al alfabeto.
+    tokens, errores = tokenizar_circuito("a²")
     assert len(errores) == 1
-    assert "Error léxico línea 1" in errores[0]
-    assert "#" in errores[0]
+    assert "columna 2" in errores[0]
+    assert "²" in errores[0]
+
+    tokens, errores = tokenizar_circuito("Ω")
+    assert len(errores) == 1

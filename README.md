@@ -73,7 +73,8 @@ NOT[x2] -> salida
 - Una declaración `ENTRADA[...]` con las señales de entrada
 - Una instrucción `COMPUERTA[entradas] -> salida` por compuerta
 - Líneas vacías se ignoran
-- Líneas que empiecen con `#` son comentarios
+- `#` inicia un comentario en cualquier punto de la línea
+- El alfabeto de identificadores es ASCII: letras, dígitos y `_` (deben iniciar con letra)
 
 ### Ejemplo de ejecución
 
@@ -144,14 +145,22 @@ pierde.
 Navegación superior con tres vistas:
 
 - `#/` — **Analizar**: layout de dos columnas. A la izquierda el editor del
-  circuito; a la derecha el resultado en cinco pestañas (**Diagrama**,
-  **Tabla de verdad**, **Expresión**, **Tokens**, **Errores**).
+  circuito; a la derecha las pestañas **Tokens**, **Árbol sintáctico**,
+  **Tabla de símbolos**, **Errores/advertencias**, **Código intermedio** y
+  **Resultados** (tabla de verdad y diagrama), además del **Paso a paso**.
+  - El AST muestra la estructura sintáctica que construye el parser.
+  - La tabla de símbolos indica tipo, línea de declaración y líneas de uso.
+    Las entradas declaradas más de una vez son errores; las entradas sin uso
+    aparecen como advertencias y no invalidan el circuito.
   - **Ctrl + Enter** analiza el circuito.
   - Mientras se escribe, la validación avisa en la pestaña **Errores** (con
     debounce de 600 ms) sin dibujar el diagrama ni ensuciar el historial. Al
     hacer clic en un error se selecciona la línea en el editor.
   - El diagrama tiene zoom (`+`, `−`, «Ajustar»), desplazamiento arrastrando y
     **Pantalla completa** (se cierra con `Esc`).
+  - **Paso a paso** permite cambiar las entradas, recorrer las compuertas en
+    orden topológico y reproducir o pausar la evaluación. Muestra los valores
+    de cada compuerta y las salidas al completar la secuencia.
 - La tabla de verdad se muestra por bloques de 32 filas con «Cargar más», y se
      puede filtrar por el valor de una señal (con sugerencias de los nombres
      reales del circuito).

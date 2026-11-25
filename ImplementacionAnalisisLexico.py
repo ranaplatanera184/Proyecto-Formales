@@ -23,14 +23,23 @@ def _cargar_palabras_reservadas(ruta="reglas.json"):
     return reservadas
 
 
+def _es_letra_ascii(caracter):
+    """Letra del alfabeto del lenguaje (A-Z, a-z), sin unicode.
+
+    `str.isalpha()` acepta caracteres como '²', 'Ω' o 'ñ'; el lenguaje JACE
+    solo admite letras ASCII, así que el alfabeto se comprueba a mano.
+    """
+    return ("a" <= caracter <= "z") or ("A" <= caracter <= "Z")
+
+
 def _es_inicio_identificador(caracter):
-    """Un identificador empieza con una letra."""
-    return caracter.isalpha()
+    """Un identificador empieza con una letra ASCII."""
+    return _es_letra_ascii(caracter)
 
 
 def _es_parte_identificador(caracter):
-    """Un identificador continua con letras, digitos o guion bajo."""
-    return caracter.isalpha() or caracter.isdigit() or caracter == "_"
+    """Un identificador continua con letras ASCII, digitos o guion bajo."""
+    return _es_letra_ascii(caracter) or ("0" <= caracter <= "9") or caracter == "_"
 
 
 def tokenizar_linea(linea, numero_linea, palabras_reservadas):
@@ -49,6 +58,11 @@ def tokenizar_linea(linea, numero_linea, palabras_reservadas):
             i += 1
             continue
 
+        # Comentario: desde '#' hasta el final de la línea se ignora, tanto si
+        # ocupa la línea completa como si va detrás de una instrucción.
+        if caracter == "#":
+            break
+
         columna = i + 1
 
         # Flecha "->" se reconoce como un unico token de dos caracteres.
@@ -58,13 +72,15 @@ def tokenizar_linea(linea, numero_linea, palabras_reservadas):
                 i += 2
             else:
                 errores.append(
-                    f"Error léxico línea {numero_linea}: carácter no reconocido '{caracter}'")
+                    f"Error léxico línea {numero_linea}, columna {columna}: "
+                    f"carácter no reconocido '{caracter}'")
                 i += 1
             continue
 
         if caracter == ">":
             errores.append(
-                f"Error léxico línea {numero_linea}: carácter no reconocido '{caracter}'")
+                f"Error léxico línea {numero_linea}, columna {columna}: "
+                f"carácter no reconocido '{caracter}'")
             i += 1
             continue
 
@@ -99,7 +115,8 @@ def tokenizar_linea(linea, numero_linea, palabras_reservadas):
 
         # Ni digitos ni guion bajo pueden iniciar un identificador.
         errores.append(
-            f"Error léxico línea {numero_linea}: carácter no reconocido '{caracter}'")
+            f"Error léxico línea {numero_linea}, columna {columna}: "
+            f"carácter no reconocido '{caracter}'")
         i += 1
 
     return tokens, errores

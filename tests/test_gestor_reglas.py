@@ -48,6 +48,11 @@ def test_analizar_circuito_valido():
     assert resultado["exito"] is True
     assert resultado["errores"] == []
     assert len(resultado["tokens"]) > 0
+    assert resultado["ast"]["tipo"] == "circuito"
+    assert [simbolo["senal"] for simbolo in resultado["tabla_simbolos"]] == [
+        "a", "b", "x", "salida"
+    ]
+    assert resultado["advertencias"] == []
     assert resultado["orden_topologico"][-1]["salida"] == "salida"
     assert resultado["tabla_verdad"]["señales"] == ["a", "b", "x", "salida"]
     assert len(resultado["tabla_verdad"]["filas"]) == 4
@@ -64,6 +69,27 @@ def test_analizar_circuito_invalido():
     )
     assert resultado["exito"] is False
     assert any("Error semántico" in e for e in resultado["errores"])
+
+
+def test_salida_de_consola_muestra_fases_en_orden(capsys):
+    gestor = GestorReglas()
+    gestor.analizar(
+        "ENTRADA[a, b]\nNOT[a] -> salida",
+        con_diagrama=False,
+        registrar=False,
+    )
+    salida = capsys.readouterr().out
+    fases = [
+        "TOKENS RECONOCIDOS",
+        "ÁRBOL SINTÁCTICO (AST)",
+        "TABLA DE SÍMBOLOS",
+        "ADVERTENCIAS",
+        "CÓDIGO INTERMEDIO",
+        "TABLA DE VERDAD",
+    ]
+    posiciones = [salida.index(fase) for fase in fases]
+    assert posiciones == sorted(posiciones)
+    assert "la entrada b no se utiliza" in salida
 
 
 def test_analizar_vacio():

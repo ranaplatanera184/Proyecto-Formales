@@ -72,19 +72,6 @@ def fondo_actual():
     }
 
 
-def quitar_comentarios(codigo):
-    """Sustituye las líneas de comentario por líneas vacías.
-
-    El analizador no reconoce el carácter `#`, pero el lenguaje JACE admite
-    comentarios (los omite la consola). En la web el código llega tal como
-    está en el editor, así que se neutralizan igual que en main.py. Se
-    conservan las líneas vacías -en lugar de borrarlas- para que los números
-    de línea de los errores sigan coincidiendo con el editor.
-    """
-    return "\n".join("" if linea.lstrip().startswith("#") else linea
-                     for linea in codigo.split("\n"))
-
-
 def circuito_vacio(codigo):
     """True si el circuito no tiene nada que analizar (ignorando comentarios)."""
     return not codigo.strip() or all(linea.strip() == "" or
@@ -127,7 +114,7 @@ def analizar_circuito(request: CircuitoRequest):
         if circuito_vacio(request.codigo):
             return {"exito": False, "errores": ["Error léxico línea 1: el circuito está vacío"]}
 
-        codigo = quitar_comentarios(request.codigo)
+        codigo = request.codigo
         fondo = schematico.normalizar_color(request.fondo) or fondo_actual()["fondo"]
 
         gestor = GestorReglas(almacenamiento=ALMACENAMIENTO)
@@ -146,20 +133,28 @@ def analizar_circuito(request: CircuitoRequest):
 def validar_circuito(request: CircuitoRequest):
     """Valida un circuito y devuelve solo si es válido y sus errores.
 
-    No dibuja el diagrama ni registra el análisis en el historial: la interfaz
-    lo usa mientras se escribe para mostrar los errores en la pestaña
-    correspondiente.
+    No dibuja el diagrama, no calcula tabla de verdad/expresiones y no registra
+    el análisis: la interfaz lo usa con cada tecla para mostrar los errores en
+    la pestaña correspondiente. Calcular todo el resultado aquí congelaba la
+    página en circuitos medianos.
     """
     try:
         if circuito_vacio(request.codigo):
             return {"exito": False, "errores": ["Error léxico línea 1: el circuito está vacío"]}
 
-        codigo = quitar_comentarios(request.codigo)
         gestor = GestorReglas()
-        resultado = gestor.analizar(codigo, imprimir=False, con_diagrama=False,
-                                    registrar=False, escribir_archivos=False)
-        return {"exito": resultado["exito"], "errores": resultado["errores"],
-                "tokens": resultado["tokens"]}
+        resultado = gestor.analizar(request.codigo, imprimir=False,
+                                    con_diagrama=False, registrar=False,
+                                    escribir_archivos=False,
+                                    con_resultados=False)
+        return {
+            "exito": resultado["exito"],
+            "errores": resultado["errores"],
+            "advertencias": resultado["advertencias"],
+            "tokens": resultado["tokens"],
+            "ast": resultado["ast"],
+            "tabla_simbolos": resultado["tabla_simbolos"],
+        }
 
     except SyntaxError as error:
         return {"exito": False, "errores": [str(error)]}

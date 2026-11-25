@@ -177,27 +177,57 @@ class _Contexto:
         return texto
 
     def _expandir(self, senal):
-        """Texto expandido de `senal`, memoizado para no repetir el trabajo."""
+        """Texto expandido de `senal`, memoizado para no repetir el trabajo.
+
+        Se recorre el circuito con una pila explícita y se construye cada nodo
+        después de sus dependencias. Así una cadena de miles de compuertas no
+        agota la pila de llamadas de Python (antes cada nivel era una llamada
+        recursiva).
+        """
         if senal in self.entradas:
             return senal
         if senal in self._expandida:
             return self._expandida[senal]
 
-        compuerta = self.compuertas[senal]
+        pendientes = [(senal, False)]
+        while pendientes:
+            actual, listo = pendientes.pop()
+
+            if actual in self.entradas or actual in self._expandida:
+                continue
+
+            compuerta = self.compuertas[actual]
+
+            if not listo:
+                # Primera visita: se pospone y se apilan sus dependencias.
+                pendientes.append((actual, True))
+                for entrada in compuerta["entradas"]:
+                    if entrada not in self.entradas and entrada not in self._expandida:
+                        pendientes.append((entrada, False))
+                continue
+
+            self._expandida[actual] = self._texto_de(compuerta)
+            self._cuenta += 1
+
+        return self._expandida[senal]
+
+    def _texto_de(self, compuerta):
+        """Texto expandido de una compuerta cuyas entradas ya están resueltas."""
         simbolo, precedencia, negacion = self.reglas[compuerta["compuerta"]]
 
         if compuerta["compuerta"] == "NOT":
             # «¬(x)»: un solo operando, siempre parentetizado porque puede ser
             # cualquier expresión.
-            texto = f"{simbolo}({self._expandir(compuerta['entradas'][0])})"
-        else:
-            texto = self._operandos(compuerta, precedencia)
-            if negacion:
-                texto = f"{negacion}({texto})"
+            return f"{simbolo}({self._texto(compuerta['entradas'][0])})"
 
-        self._cuenta += 1
-        self._expandida[senal] = texto
+        texto = self._operandos(compuerta, precedencia)
+        if negacion:
+            texto = f"{negacion}({texto})"
         return texto
+
+    def _texto(self, senal):
+        """Texto ya resuelto de una señal (las entradas son su propio nombre)."""
+        return senal if senal in self.entradas else self._expandida[senal]
 
     def _operandos(self, compuerta, precedencia_padre):
         """Los operandos unidos con su símbolo, parentetizados si hace falta."""
@@ -209,7 +239,7 @@ class _Contexto:
                 partes.append(entrada)
                 continue
 
-            texto = self._expandir(entrada)
+            texto = self._texto(entrada)
             _, precedencia_entrada, _ = self.reglas[self.compuertas[entrada]["compuerta"]]
 
             # Se parentetiza un operando compuesto cuando su operador se evalúa

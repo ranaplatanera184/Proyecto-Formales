@@ -72,21 +72,32 @@ class GestorReglas:
     # ------------------------------------------------------------------
     # Fases del compilador: análisis completo de un circuito
     # ------------------------------------------------------------------
-    def analizar(self, texto, imprimir=True, fondo=FONDO, escribir_archivos=True,
-                  con_diagrama=True, registrar=True):
+    def analizar(self, texto, imprimir=True, fondo=FONDO, escribir_archivos=False,
+                  con_diagrama=True, registrar=True, con_resultados=True):
         """Ejecuta las fases léxica, sintáctica y semántica sobre un circuito.
 
         Devuelve un diccionario con el resultado (tokens, errores, orden
         topológico, tabla de verdad, expresiones y diagrama DOT).
 
+        El texto se analiza tal cual llega (sin borrar líneas vacías ni
+        comentarios) para que los números de línea de los errores coincidan
+        siempre con el archivo original.
+
         `fondo` es el color de fondo del diagrama esquemático (el esquema se
         adapta solo a fondos claros u oscuros). `escribir_archivos=False`
-        devuelve el SVG sin dejar PNG/SVG en el disco (lo usa la interfaz web).
+        (valor por defecto) devuelve el SVG en memoria sin escribir PNG/SVG en
+        el disco; solo se escribe si el llamador lo pide expresamente.
         `con_diagrama=False` se salta el dibujo del circuito y el DOT (para
-        validar rápido) y `registrar=False` no añade el análisis al historial
-        (para no llenarlo con validaciones automáticas).
+        validar rápido). `con_resultados=False` se detiene después de las
+        comprobaciones semánticas, sin calcular tabla de verdad ni expresiones
+        (lo usa la validación mientras se escribe en la web). `registrar=False`
+        no añade el análisis al historial.
         """
-        texto = texto.strip()
+        if not texto:
+            texto = ""
+        # Solo se recorta el final: quitar líneas del principio correría los
+        # números de línea que se muestran en los errores.
+        texto = texto.rstrip()
         fondo = normalizar_color(fondo) or FONDO
 
         tokens = []
@@ -96,6 +107,9 @@ class GestorReglas:
         tabla = {"señales": [], "filas": []}
         expresiones = []
         expresiones_booleanas = {}
+        tabla_simbolos = []
+        advertencias = []
+        ast = None
         dot = ""
         svg = ""
         circuito = None
@@ -113,6 +127,7 @@ class GestorReglas:
                 try:
                     parser = AnalisisSintactico(tokens, gestorReglas=self)
                     estructura = parser.construir_circuito()
+                    ast = estructura["ast"]
                 except SyntaxError as error:
                     errores.append(str(error))
 
@@ -121,41 +136,48 @@ class GestorReglas:
                 semantico = AnalizadorSemantico(
                     estructura["entradas"],
                     estructura["compuertas"],
-                    self.reglas["compuertas"])
+                    self.reglas["compuertas"],
+                    linea_entrada=estructura["linea_entrada"])
+                tabla_simbolos = semantico.tabla_simbolos()
+                advertencias = semantico.advertencias()
                 errores_semanticos = semantico.revisar()
                 errores.extend(errores_semanticos)
 
                 if not errores_semanticos:
-                    orden = semantico.orden_topologico()
-                    tabla = semantico.tabla_verdad()
-                    expresiones = [
-                        {"salida": salida, "expresion": expresion}
-                        for salida, expresion in semantico.expresiones_booleanas()
-                    ]
-                    # Expresiones en forma intermedia y expandida, en las dos
-                    # notaciones. Es texto, así que no necesita el diagrama.
-                    simbolos = generar_expresiones(semantico)
-                    ascii_ = generar_expresiones(semantico, "ascii")
-                    expresiones_booleanas = {
-                        salida: {
-                            "intermedia": datos["intermedia"],
-                            "expandida": datos["expandida"],
-                            "aviso": datos["aviso"],
-                            "intermedia_ascii": ascii_[salida]["intermedia"],
-                            "expandida_ascii": ascii_[salida]["expandida"],
+                    # La validación rápida (con_resultados=False) termina aquí:
+                    # calcular la tabla de verdad de 2^n filas con cada tecla
+                    # congelaba la interfaz en circuitos medianos.
+                    if con_resultados:
+                        orden = semantico.orden_topologico()
+                        tabla = semantico.tabla_verdad()
+                        expresiones = [
+                            {"salida": salida, "expresion": expresion}
+                            for salida, expresion in semantico.expresiones_booleanas()
+                        ]
+                        # Expresiones en forma intermedia y expandida, en las dos
+                        # notaciones. Es texto, así que no necesita el diagrama.
+                        simbolos = generar_expresiones(semantico)
+                        ascii_ = generar_expresiones(semantico, "ascii")
+                        expresiones_booleanas = {
+                            salida: {
+                                "intermedia": datos["intermedia"],
+                                "expandida": datos["expandida"],
+                                "aviso": datos["aviso"],
+                                "intermedia_ascii": ascii_[salida]["intermedia"],
+                                "expandida_ascii": ascii_[salida]["expandida"],
+                            }
+                            for salida, datos in simbolos.items()
                         }
-                        for salida, datos in simbolos.items()
-                    }
-                    # Diagrama esquemático (SchemDraw) y DOT de respaldo.
-                    # con_diagrama=False permite validar sin dibujar nada.
-                    if con_diagrama:
-                        circuito = schematico.generar_diagrama(
-                            estructura["entradas"], estructura["compuertas"],
-                            fondo=fondo)
-                        dot = generar_dot(estructura["entradas"],
-                                          estructura["compuertas"])
-                        svg = schematico.exportar(
-                            circuito, escribir_archivos=escribir_archivos)
+                        # Diagrama esquemático (SchemDraw) y DOT de respaldo.
+                        # con_diagrama=False permite validar sin dibujar nada.
+                        if con_diagrama:
+                            circuito = schematico.generar_diagrama(
+                                estructura["entradas"], estructura["compuertas"],
+                                fondo=fondo)
+                            dot = generar_dot(estructura["entradas"],
+                                              estructura["compuertas"])
+                            svg = schematico.exportar(
+                                circuito, escribir_archivos=escribir_archivos)
                     exito = True
 
         # Registro en el historial (entrada, resultado, errores y expresiones).
@@ -167,9 +189,12 @@ class GestorReglas:
             if exito:
                 self._imprimir_resultado(texto, tokens, estructura, orden, tabla,
                                         expresiones, dot, escribir_archivos,
-                                        con_diagrama)
+                                        con_diagrama, ast=ast,
+                                        tabla_simbolos=tabla_simbolos,
+                                        expresiones_booleanas=expresiones_booleanas,
+                                        advertencias=advertencias)
             else:
-                self._imprimir_errores(errores)
+                self._imprimir_errores(errores, advertencias)
 
         resultado = {
             "exito": exito,
@@ -177,6 +202,9 @@ class GestorReglas:
             "tokens": [t.to_json() for t in tokens],
             "entradas": estructura["entradas"] if estructura else [],
             "compuertas": estructura["compuertas"] if estructura else [],
+            "ast": ast,
+            "tabla_simbolos": tabla_simbolos,
+            "advertencias": advertencias,
             "orden_topologico": orden,
             "tabla_verdad": tabla,
             "expresiones": expresiones,
@@ -193,7 +221,9 @@ class GestorReglas:
         return resultado
 
     def _imprimir_resultado(self, texto, tokens, estructura, orden, tabla, expresiones, dot,
-                            escribir_archivos=True, con_diagrama=True):
+                            escribir_archivos=False, con_diagrama=True, ast=None,
+                            tabla_simbolos=None, expresiones_booleanas=None,
+                            advertencias=None):
         print("\n=== ANÁLISIS DE CIRCUITO ===")
 
         print("\n== ENTRADA ==")
@@ -205,13 +235,36 @@ class GestorReglas:
         for token in tokens:
             print(f"  {token.token:26} {token.valor!r:20} (línea {token.linea}, columna {token.columna})")
 
-        # Salida 2: orden de evaluación (orden topológico).
+        # Fase 2: árbol sintáctico generado por el parser.
+        print("\n== ÁRBOL SINTÁCTICO (AST) ==")
+        print(json.dumps(ast, ensure_ascii=False, indent=2))
+
+        # Fase 3: tabla de símbolos y posiciones de uso.
+        print("\n== TABLA DE SÍMBOLOS ==")
+        for simbolo in tabla_simbolos or []:
+            usos = ", ".join(str(linea) for linea in simbolo["lineas_uso"]) or "—"
+            print(f"  {simbolo['senal']}: {simbolo['tipo']}, "
+                  f"declarada en línea {simbolo['linea_declaracion']}, usos: {usos}")
+
+        # Fase 4: advertencias semánticas que no invalidan el circuito.
+        print("\n== ADVERTENCIAS ==")
+        for advertencia in advertencias or []:
+            print(f"  - {advertencia}")
+
+        # Fase 5: representación intermedia, en orden topológico.
+        print("\n== CÓDIGO INTERMEDIO ==")
+        for salida, datos in (expresiones_booleanas or {}).items():
+            print(f"  {salida}:")
+            for linea in datos["intermedia"]:
+                print(f"    {linea}")
+            print(f"    Expandida: {datos['expandida'] or datos['aviso']}")
+
         print("\n== ORDEN DE EVALUACIÓN (TOPOLÓGICO) ==")
         for i, compuerta in enumerate(orden, start=1):
             entradas = ", ".join(compuerta["entradas"])
             print(f"  {i}. {compuerta['compuerta']}[{entradas}] -> {compuerta['salida']}")
 
-        # Salida 3: tabla de verdad completa con señales intermedias.
+        # Fase 6: tabla de verdad y diagrama.
         print("\n== TABLA DE VERDAD ==")
         cabecera = " | ".join(tabla["señales"])
         print(f"  {cabecera}")
@@ -219,20 +272,19 @@ class GestorReglas:
         for fila in tabla["filas"]:
             print("  " + " | ".join(str(valor) for valor in fila))
 
-        # Salida 4: expresión booleana equivalente de cada salida.
-        print("\n== EXPRESIÓN BOOLEANA ==")
-        for item in expresiones:
-            print(f"  {item['salida']} = {item['expresion']}")
-
-        # Salida 5: diagrama (SVG y PNG con el símbolo real de cada compuerta).
+        # El diagrama se deja al final junto con la tabla de resultados.
         self._generar_diagrama(escribir_archivos, con_diagrama)
 
         print("\nANÁLISIS EXITOSO")
 
-    def _imprimir_errores(self, errores):
+    def _imprimir_errores(self, errores, advertencias=None):
         print("\nERRORES DEL ANÁLISIS:")
         for error in errores:
             print(f"  - {error}")
+        if advertencias:
+            print("\nADVERTENCIAS:")
+            for advertencia in advertencias:
+                print(f"  - {advertencia}")
         print("\nEl circuito NO es válido.")
 
     def _generar_diagrama(self, escribir_archivos=True, con_diagrama=True):
@@ -242,6 +294,7 @@ class GestorReglas:
             print("  No se generó el diagrama (validación sin dibujo).")
         elif not escribir_archivos:
             print("  SVG generado en memoria (no se escribieron archivos).")
+            print("  Use --guardar para escribir el SVG y el PNG en el disco.")
         elif os.path.isfile(RUTA_DIAGRAMA_SVG) and os.path.isfile(RUTA_DIAGRAMA_PNG):
             print(f"  SVG generado: {RUTA_DIAGRAMA_SVG}")
             print(f"  PNG generado (dpi=200): {RUTA_DIAGRAMA_PNG}")
@@ -287,9 +340,8 @@ class GestorReglas:
                 break
             if linea.strip() == "":
                 break
-            # Las líneas que empiezan con # son comentarios y se ignoran.
-            if linea.strip().startswith("#"):
-                continue
+            # Los comentarios se conservan: la fase léxica los ignora y así
+            # los números de línea siguen coincidiendo con lo que se escribió.
             lineas.append(linea)
 
         texto = "\n".join(lineas)

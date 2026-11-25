@@ -71,6 +71,40 @@ def test_redefinicion_de_señal():
     assert "Error semántico línea 3" in errores[0]
 
 
+def test_entradas_repetidas_se_reportan_como_error():
+    semantico = _semantico(["a", "a"], [
+        {"compuerta": "NOT", "entradas": ["a"], "salida": "x", "linea": 2},
+    ])
+    errores = semantico.revisar()
+    assert errores == [
+        "Error semántico línea 1: la entrada a está declarada más de una vez"
+    ]
+
+
+def test_tabla_de_simbolos_indica_tipo_linea_y_usos():
+    semantico = AnalizadorSemantico(
+        ["a", "b"], [
+            {"compuerta": "AND", "entradas": ["a", "b"], "salida": "x", "linea": 3},
+            {"compuerta": "NOT", "entradas": ["x"], "salida": "y", "linea": 4},
+        ], _reglas(), linea_entrada=2)
+    assert semantico.tabla_simbolos() == [
+        {"senal": "a", "tipo": "entrada", "linea_declaracion": 2, "lineas_uso": [3]},
+        {"senal": "b", "tipo": "entrada", "linea_declaracion": 2, "lineas_uso": [3]},
+        {"senal": "x", "tipo": "cable interno", "linea_declaracion": 3, "lineas_uso": [4]},
+        {"senal": "y", "tipo": "salida", "linea_declaracion": 4, "lineas_uso": []},
+    ]
+
+
+def test_entrada_no_utilizada_es_advertencia_no_error():
+    semantico = _semantico(["a", "b"], [
+        {"compuerta": "NOT", "entradas": ["a"], "salida": "x", "linea": 2},
+    ])
+    assert semantico.revisar() == []
+    assert semantico.advertencias() == [
+        "Advertencia línea 1: la entrada b no se utiliza"
+    ]
+
+
 def test_salida_igual_a_entrada():
     compuertas = [
         {"compuerta": "AND", "entradas": ["a", "b"], "salida": "a", "linea": 2},

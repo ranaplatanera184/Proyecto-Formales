@@ -21,10 +21,12 @@ from itertools import product
 
 class AnalizadorSemantico:
 
-    def __init__(self, entradas, compuertas, reglas_compuertas):
+    def __init__(self, entradas, compuertas, reglas_compuertas,
+                 linea_entrada=1):
         # Fase semántica: trabaja sobre la estructura construida por el parser.
         self.entradas = entradas
         self.compuertas = compuertas
+        self.linea_entrada = linea_entrada
 
         # Aridad y operación de cada compuerta provienen de reglas.json.
         self.entradas_min = {}
@@ -41,6 +43,16 @@ class AnalizadorSemantico:
     def revisar(self):
         """Devuelve la lista de errores semánticos (vacía si todo es correcto)."""
         errores = []
+
+        # Una entrada repetida crea una declaración ambigua antes incluso de
+        # analizar las conexiones de las compuertas.
+        vistas = set()
+        for senal in self.entradas:
+            if senal in vistas:
+                errores.append(
+                    f"Error semántico línea {self.linea_entrada}: "
+                    f"la entrada {senal} está declarada más de una vez")
+            vistas.add(senal)
 
         # 1. Aridad de las compuertas.
         for compuerta in self.compuertas:
@@ -67,10 +79,12 @@ class AnalizadorSemantico:
         #    definen más adelante en el circuito.)
         definidas = set(self.entradas)
         primera_definicion = {s: "ENTRADA" for s in self.entradas}
+        hay_redefinicion = len(vistas) != len(self.entradas)
 
         for compuerta in self.compuertas:
             salida = compuerta["salida"]
             if salida in definidas:
+                hay_redefinicion = True
                 errores.append(
                     f"Error semántico línea {compuerta['linea']}: "
                     f"la señal {salida} ya está definida "
@@ -88,15 +102,77 @@ class AnalizadorSemantico:
                         f"la señal {senal} no está definida")
 
         # 4. Detección de ciclos en el grafo de dependencias (DFS).
-        ciclo = self._detectar_ciclo()
-        if ciclo is not None:
-            errores.append(f"Error semántico línea {ciclo[1]}: ciclo detectado en la señal {ciclo[0]}")
+        #    Si una señal está definida dos veces el grafo ya es ambiguo y el
+        #    error útil es la redefinición, no un ciclo derivado de ella.
+        if not hay_redefinicion:
+            ciclo = self._detectar_ciclo()
+            if ciclo is not None:
+                senales, linea = ciclo
+                camino = " → ".join(senales)
+                errores.append(
+                    f"Error semántico línea {linea}: ciclo detectado: {camino}")
 
         return errores
 
+    def tabla_simbolos(self):
+        """Describe cada señal declarada y las líneas donde se utiliza."""
+        usos = {}
+        for compuerta in self.compuertas:
+            for senal in compuerta["entradas"]:
+                usos.setdefault(senal, []).append(compuerta["linea"])
+
+        usadas = set(usos)
+        filas = []
+        vistas = set()
+        for senal in self.entradas:
+            if senal in vistas:
+                continue
+            vistas.add(senal)
+            filas.append({
+                "senal": senal,
+                "tipo": "entrada",
+                "linea_declaracion": self.linea_entrada,
+                "lineas_uso": sorted(set(usos.get(senal, []))),
+            })
+
+        for compuerta in self.compuertas:
+            senal = compuerta["salida"]
+            if senal in vistas:
+                continue
+            vistas.add(senal)
+            filas.append({
+                "senal": senal,
+                "tipo": "cable interno" if senal in usadas else "salida",
+                "linea_declaracion": compuerta["linea"],
+                "lineas_uso": sorted(set(usos.get(senal, []))),
+            })
+
+        return filas
+
+    def advertencias(self):
+        """Devuelve advertencias que no invalidan el circuito."""
+        usos = {
+            senal
+            for compuerta in self.compuertas
+            for senal in compuerta["entradas"]
+        }
+        return [
+            f"Advertencia línea {self.linea_entrada}: "
+            f"la entrada {senal} no se utiliza"
+            for senal in dict.fromkeys(self.entradas)
+            if senal not in usos
+        ]
+
     def _detectar_ciclo(self):
-        """Recorre el grafo de dependencias con DFS. Devuelve (senal, linea) si
-        hay un ciclo o None si el grafo es acíclico."""
+        """Recorre el grafo de dependencias con DFS iterativo.
+
+        Devuelve ``(camino, linea)`` si hay un ciclo o ``None`` si el grafo es
+        acíclico. ``camino`` incluye la señal repetida al final (por ejemplo
+        ``["x", "y", "x"]``), así el mensaje muestra el bucle exacto.
+
+        Se usa una pila explícita en lugar de recursión para que una cadena de
+        miles de compuertas no agote la pila de llamadas de Python.
+        """
         n = len(self.compuertas)
         if n == 0:
             return None
@@ -106,40 +182,54 @@ class AnalizadorSemantico:
         for i, compuerta in enumerate(self.compuertas):
             mapa[compuerta["salida"]] = i
 
-        # succ[u] = compuertas que dependen de la compuerta u.
+        # succ[u] = compuertas de las que depende u. Una compuerta que se usa a
+        # sí misma también cuenta (antes se ignoraba y el ciclo no se veía).
         succ = [[] for _ in range(n)]
         for i, compuerta in enumerate(self.compuertas):
             for senal in compuerta["entradas"]:
                 j = mapa.get(senal)
-                if j is not None and j != i:
+                if j is not None:
                     succ[i].append(j)
 
-        color = [0] * n  # 0 = blanco (no visitado), 1 = gris (en pila), 2 = negro
-        resultado = None
+        color = [0] * n  # 0 = blanco (no visitado), 1 = gris (en el camino), 2 = negro
 
-        def visitar(u, pila):
-            nonlocal resultado
-            color[u] = 1
-            pila.append(u)
-            for v in succ[u]:
-                if color[v] == 1:
-                    # Existe un ciclo: la señal implicada es la salida del nodo ancestro v.
-                    resultado = (self.compuertas[v]["salida"], self.compuertas[v]["linea"])
-                    return
-                if color[v] == 0:
-                    visitar(v, pila)
-                    if resultado is not None:
-                        return
-            pila.pop()
-            color[u] = 2
+        for inicio in range(n):
+            if color[inicio] != 0:
+                continue
 
-        for u in range(n):
-            if color[u] == 0:
-                visitar(u, [])
-                if resultado is not None:
-                    break
+            color[inicio] = 1
+            camino = [inicio]
+            # Cada elemento es [nodo, siguiente vecino por visitar].
+            pila = [[inicio, 0]]
 
-        return resultado
+            while pila:
+                u, indice = pila[-1]
+
+                if indice < len(succ[u]):
+                    v = succ[u][indice]
+                    pila[-1][1] += 1
+
+                    if color[v] == 1:
+                        # v ya está en el camino: el ciclo va de v hasta u y
+                        # vuelve a v.
+                        desde = camino.index(v)
+                        senales = [self.compuertas[k]["salida"]
+                                   for k in camino[desde:]]
+                        senales.append(self.compuertas[v]["salida"])
+                        return senales, self.compuertas[v]["linea"]
+
+                    if color[v] == 0:
+                        color[v] = 1
+                        camino.append(v)
+                        pila.append([v, 0])
+                    continue
+
+                # Sin vecinos pendientes: el nodo queda terminado.
+                color[u] = 2
+                pila.pop()
+                camino.pop()
+
+        return None
 
     # ------------------------------------------------------------------
     # Orden topológico
@@ -157,7 +247,7 @@ class AnalizadorSemantico:
         for i, compuerta in enumerate(self.compuertas):
             for senal in compuerta["entradas"]:
                 j = mapa.get(senal)
-                if j is not None and j != i:
+                if j is not None:
                     succ[j].append(i)
                     indeg[i] += 1
 
@@ -224,7 +314,6 @@ class AnalizadorSemantico:
     def expresiones_booleanas(self):
         """Expresión booleana equivalente de cada señal de salida que no es
         utilizada como entrada de otra compuerta."""
-        mapa = {c["salida"]: c for c in self.compuertas}
         entradas_set = set(self.entradas)
 
         # Señales usadas como entrada por alguna compuerta.
@@ -235,23 +324,23 @@ class AnalizadorSemantico:
         # Salidas "finales" del circuito.
         salidas_finales = [c["salida"] for c in self.compuertas if c["salida"] not in usadas]
 
-        def expresion_de(senal):
-            if senal in entradas_set:
-                return senal
-            compuerta = mapa[senal]
+        # Las expresiones se construyen en orden topológico (iterativo), no con
+        # recursión: una cadena de miles de compuertas agotaría la pila.
+        textos = {}
+        for compuerta in self.orden_topologico():
+            senal = compuerta["salida"]
+
             if compuerta["compuerta"] == "NOT":
-                return f"NOT({expresion_de(compuerta['entradas'][0])})"
+                entrada = compuerta["entradas"][0]
+                textos[senal] = f"NOT({entrada if entrada in entradas_set else textos[entrada]})"
+            else:
+                operandos = [
+                    entrada if entrada in entradas_set else f"({textos[entrada]})"
+                    for entrada in compuerta["entradas"]
+                ]
+                textos[senal] = f" {compuerta['compuerta']} ".join(operandos)
 
-            # Cada operando que es compuerta se inserta entre paréntesis.
-            operandos = []
-            for entrada in compuerta["entradas"]:
-                if entrada in entradas_set:
-                    operandos.append(entrada)
-                else:
-                    operandos.append(f"({expresion_de(entrada)})")
-            return f" {compuerta['compuerta']} ".join(operandos)
-
-        return [(salida, expresion_de(salida)) for salida in salidas_finales]
+        return [(salida, textos[salida]) for salida in salidas_finales]
 
 
 # ---------------------------------------------------------------------------

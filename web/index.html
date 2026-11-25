@@ -9,20 +9,41 @@
 </head>
 <body>
   <header class="barra">
-    <div class="marca">
-      <span class="logo">JACE</span>
-      <span class="sub">Compilador de circuitos lógicos</span>
-    </div>
+    <a class="marca" href="#/" aria-label="JACE, ir al análisis">
+      <span class="marca-simbolo" aria-hidden="true">
+        <svg viewBox="0 0 40 40" fill="none">
+          <path d="M4 13c4 .3 7.6 2.2 11 6l-1-8 5 3.5a5 5 0 0 1 2 0L26 11l-1 8c3.4-3.8 7-5.7 11-6-.6 6.2-1.8 11.4-5.5 14.5-2.2-1.6-4.6-2.3-7.3-1.8-.8 4.2-1.9 7.3-3.2 9.3-1.3-2-2.4-5.1-3.2-9.3-2.7-.5-5.1.2-7.3 1.8C5.8 24.4 4.6 19.2 4 13Z" fill="currentColor"/>
+          <path d="M8 16.5c2.8.8 5.2 2.4 7.2 4.7m16.8-4.7c-2.8.8-5.2 2.4-7.2 4.7" stroke="#DDEBD7" stroke-width="1.25" stroke-linecap="round"/>
+          <circle cx="17.4" cy="22.3" r="1" fill="#F7F6E9"/>
+          <circle cx="22.6" cy="22.3" r="1" fill="#F7F6E9"/>
+          <path d="M18 25.3c1.2 1 2.8 1 4 0" stroke="#F7F6E9" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="marca-texto">
+        <span class="logo">JACE</span>
+        <span class="sub">Compilador de circuitos lógicos</span>
+      </span>
+    </a>
 
-    <nav>
-      <a href="#/" data-vista="analisis">Analizar</a>
-      <a href="#/historial" data-vista="historial">Historial</a>
-      <a href="#/background" data-vista="background">Background</a>
+    <nav aria-label="Navegación principal">
+      <a href="#/" data-vista="analisis">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h4l2.2-5 3.6 10 2.2-5H17"/></svg>
+        <span>Analizar</span>
+      </a>
+      <a href="#/historial" data-vista="historial">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h8"/><circle cx="2.5" cy="5.5" r=".7" fill="currentColor" stroke="none"/><circle cx="2.5" cy="10" r=".7" fill="currentColor" stroke="none"/><circle cx="2.5" cy="14.5" r=".7" fill="currentColor" stroke="none"/></svg>
+        <span>Historial</span>
+      </a>
+      <a href="#/background" data-vista="background">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5v13M3.5 10h13M5.4 5.4l9.2 9.2m0-9.2-9.2 9.2"/></svg>
+        <span>Fondo</span>
+      </a>
     </nav>
 
-    <div class="estado">
+    <div class="estado" aria-label="Color de fondo actual">
+      <span class="estado-etiqueta">Ambiente</span>
       <span class="muestra" id="muestraFondo" title="Fondo actual"></span>
-      <input type="color" id="colorRapido" value="#ffffff" title="Cambiar el fondo">
+      <input type="color" id="colorRapido" value="#ffffff" title="Cambiar el fondo" aria-label="Cambiar el fondo">
       <span id="textoFondo" class="mono">#FFFFFF</span>
     </div>
   </header>
@@ -30,63 +51,213 @@
   <main>
     <!-- ============================ RUTA #/ : ANALIZAR ==================== -->
     <section id="vista-analisis" class="vista">
-      <!-- Columna izquierda: editor -->
-      <div class="col-izquierda">
-        <div class="panel editor">
-          <h2>Circuito (.jace)</h2>
-          <textarea id="codigo" spellcheck="false" placeholder="ENTRADA[a, b, c]&#10;AND[a, b] -> x1&#10;OR[x1, c] -> x2&#10;NOT[x2] -> salida"></textarea>
-
-          <div class="acciones">
-            <button id="analizar" class="primario">Analizar</button>
-            <button id="ejemplo">Cargar ejemplo</button>
-            <span id="aviso" class="aviso"></span>
+      <section class="hero-jace" aria-labelledby="heroTitulo">
+        <div class="hero-copy">
+          <span class="hero-etiqueta">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 3.5C9 3.5 4 6.7 4 11.2c0 2.2 1.7 3.8 3.8 3.8 4.7 0 8.7-5.2 8.7-11.5Z"/><path d="M3 17c2.8-4 5.7-6.2 9.5-8"/></svg>
+            Lógica que toma forma
+          </span>
+          <h1 id="heroTitulo">Conecta ideas.<br><span>Descubre el circuito.</span></h1>
+          <p>Escribe tu circuito JACE, recorre sus etapas y entiende cómo cada señal transforma el resultado.</p>
+          <div class="hero-fases" aria-label="Etapas disponibles">
+            <span><i>01</i> Analizar</span>
+            <span class="hero-separador" aria-hidden="true"></span>
+            <span><i>02</i> Comprender</span>
+            <span class="hero-separador" aria-hidden="true"></span>
+            <span><i>03</i> Simular</span>
           </div>
-
-          <div id="resumen" class="resumen oculto">
-            <span class="chip"><strong id="datoCompuertas">0</strong> compuertas</span>
-            <span class="chip"><strong id="datoFilas">0</strong> filas</span>
-            <span class="chip"><strong id="datoColumnas">0</strong> señales</span>
-            <span class="chip"><strong id="datoTiempo">0.0</strong> s</span>
-          </div>
-
-          <p class="ayuda">
-            Atajo: <span class="mono">Ctrl + Enter</span> analiza.
-            Los errores aparecen en la pestaña «Errores» mientras escribes.
-          </p>
         </div>
-      </div>
 
-      <!-- Columna derecha: resultados -->
-      <div class="col-derecha">
-        <div class="panel resultados" id="panelResultados">
-          <div class="cabecera-resultados">
-            <h2>Resultado</h2>
-            <div class="acciones">
-              <div class="menu" id="menuExportar">
-                <button id="botonExportar" class="primario" disabled>Exportar ▾</button>
-                <ul id="listaExportar" class="submenu oculto">
-                  <li><button data-exportar="svg">Diagrama SVG</button></li>
-                  <li><button data-exportar="csv">Tabla de verdad (CSV)</button></li>
-                  <li><button data-exportar="json">Resultado completo (JSON)</button></li>
-                </ul>
+        <div class="hero-visual" role="img" aria-label="Ilustración de un circuito lógico entre colinas verdes">
+          <svg viewBox="0 0 1200 420" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="heroSky" x1="600" y1="0" x2="600" y2="420" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#DDF1E8"/>
+                <stop offset="1" stop-color="#F5F4DF"/>
+              </linearGradient>
+              <linearGradient id="heroHill" x1="600" y1="195" x2="600" y2="420" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#BDD9AF"/>
+                <stop offset="1" stop-color="#9FC89D"/>
+              </linearGradient>
+            </defs>
+            <rect width="1200" height="420" rx="30" fill="url(#heroSky)"/>
+            <circle cx="1038" cy="82" r="38" fill="#F6D98A" fill-opacity=".75"/>
+            <path d="M0 245c126-47 222-48 338-8 134 47 223 42 356-7 153-57 315-44 506 10v180H0V245Z" fill="#D9E7C8"/>
+            <path d="M0 292c143-62 259-48 393-4 141 47 244 44 394-11 149-55 272-36 413 10v133H0V292Z" fill="url(#heroHill)"/>
+            <path d="M0 354c123-39 235-35 378 1 144 36 255 25 408-16 150-40 278-36 414 3v78H0v-66Z" fill="#83B88F" fill-opacity=".58"/>
+            <g stroke="#fff" stroke-opacity=".82" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M526 111h92c20 0 28 13 28 31v18"/>
+              <path d="M646 160v28c0 17 12 25 29 25h58"/>
+              <path d="M815 213h59c20 0 28-13 28-31v-29"/>
+              <path d="M902 153v45c0 18 12 27 30 27h70"/>
+              <path d="M1002 225h70c17 0 25 12 25 28v20"/>
+            </g>
+            <g fill="#fff" stroke="#78A983" stroke-width="2.5">
+              <circle cx="526" cy="111" r="9"/><circle cx="646" cy="160" r="9"/>
+              <circle cx="733" cy="213" r="9"/><circle cx="902" cy="153" r="9"/>
+              <circle cx="1002" cy="225" r="9"/><circle cx="1097" cy="273" r="9"/>
+            </g>
+            <g>
+              <rect x="584" y="70" width="112" height="54" rx="18" fill="#fff" fill-opacity=".94"/>
+              <text x="640" y="103" text-anchor="middle" fill="#426B4C" font-family="system-ui,sans-serif" font-size="17" font-weight="700">AND</text>
+              <rect x="758" y="199" width="112" height="54" rx="18" fill="#fff" fill-opacity=".94"/>
+              <text x="814" y="232" text-anchor="middle" fill="#426B4C" font-family="system-ui,sans-serif" font-size="17" font-weight="700">OR</text>
+              <rect x="930" y="93" width="112" height="54" rx="18" fill="#fff" fill-opacity=".94"/>
+              <text x="986" y="126" text-anchor="middle" fill="#426B4C" font-family="system-ui,sans-serif" font-size="17" font-weight="700">NOT</text>
+            </g>
+            <g fill="#5D9569">
+              <path d="M95 278c0-22 18-40 40-40s40 18 40 40H95Z"/><rect x="130" y="278" width="10" height="29" rx="5" fill="#A87955"/>
+              <path d="M383 314c0-17 14-31 31-31s31 14 31 31h-62Z"/><rect x="410" y="314" width="8" height="24" rx="4" fill="#A87955"/>
+              <path d="M1092 242c0-20 16-36 36-36s36 16 36 36h-72Z"/><rect x="1123" y="242" width="9" height="27" rx="4.5" fill="#A87955"/>
+            </g>
+            <g fill="#F7FCF5" fill-opacity=".9">
+              <path d="M256 117c0-9 7-16 16-16 5 0 9 2 12 6 3-4 7-6 12-6 9 0 16 7 16 16h-56Z"/>
+              <path d="M835 85c0-7 6-13 13-13 4 0 7 2 10 5 2-3 6-5 10-5 7 0 13 6 13 13h-46Z"/>
+            </g>
+            <g fill="#E4A96A">
+              <circle cx="210" cy="199" r="4"/><circle cx="480" cy="73" r="3"/><circle cx="890" cy="307" r="4"/><circle cx="1144" cy="166" r="3"/>
+            </g>
+          </svg>
+          <span class="visual-nota"><span></span> Cada conexión cuenta</span>
+        </div>
+      </section>
+
+      <div class="workspace-grid">
+        <!-- Columna izquierda: editor -->
+        <div class="col-izquierda">
+          <div class="panel editor" id="editor">
+            <div class="panel-titulo">
+              <span class="panel-icono icono-editor" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M8 5H5v14h3m8-14h3v14h-3M14 4l-4 16"/></svg>
+              </span>
+              <div>
+                <span class="sobrelinea">Tu espacio de trabajo</span>
+                <h2>Circuito JACE</h2>
               </div>
-              <button id="descargarSvg" disabled>Descargar SVG</button>
+              <span class="formato-chip"><span></span>.jace</span>
+            </div>
+            <label class="sr-only" for="codigo">Código del circuito</label>
+            <textarea id="codigo" spellcheck="false" placeholder="ENTRADA[a, b, c]&#10;AND[a, b] -> x1&#10;OR[x1, c] -> x2&#10;NOT[x2] -> salida"></textarea>
+
+            <div class="acciones editor-acciones">
+              <button id="analizar" class="primario">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h4l2.2-5 3.6 10 2.2-5H17"/></svg>
+                Analizar circuito
+              </button>
+              <button id="ejemplo" class="boton-suave">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12v11H4zM7 8h6M7 11h6"/></svg>
+                Cargar ejemplo
+              </button>
+              <span id="aviso" class="aviso"></span>
+            </div>
+
+            <div id="resumen" class="resumen oculto">
+              <span class="chip"><strong id="datoCompuertas">0</strong><small>compuertas</small></span>
+              <span class="chip"><strong id="datoFilas">0</strong><small>filas</small></span>
+              <span class="chip"><strong id="datoColumnas">0</strong><small>señales</small></span>
+              <span class="chip"><strong id="datoTiempo">0.0</strong><small>segundos</small></span>
+            </div>
+
+            <div class="editor-pie">
+              <span class="tecla-ayuda"><kbd>Ctrl</kbd><b>+</b><kbd>Enter</kbd></span>
+              <span>para analizar · validación automática al escribir</span>
             </div>
           </div>
+        </div>
 
-          <div class="pestanas" id="pestanas" role="tablist">
-            <button class="pestana activa" data-panel="diagrama" role="tab">Diagrama</button>
-            <button class="pestana" data-panel="tabla" role="tab">Tabla de verdad</button>
-            <button class="pestana" data-panel="expresion" role="tab">Expresión</button>
-            <button class="pestana" data-panel="tokens" role="tab">Tokens</button>
-            <button class="pestana oculto" data-panel="errores" role="tab">
-              Errores <span class="badge" id="badgeErrores">0</span>
+        <!-- Columna derecha: resultados -->
+        <div class="col-derecha">
+          <div class="panel resultados" id="panelResultados">
+            <div class="cabecera-resultados">
+              <div>
+                <span class="sobrelinea">Explorador JACE</span>
+                <h2>Resultados del circuito</h2>
+              </div>
+              <div class="acciones">
+                <div class="menu" id="menuExportar">
+                  <button id="botonExportar" class="primario" disabled>Exportar ▾</button>
+                  <ul id="listaExportar" class="submenu oculto">
+                    <li><button data-exportar="svg">Diagrama SVG</button></li>
+                    <li><button data-exportar="csv">Tabla de verdad (CSV)</button></li>
+                    <li><button data-exportar="json">Resultado completo (JSON)</button></li>
+                  </ul>
+                </div>
+                <button id="descargarSvg" disabled>Descargar SVG</button>
+              </div>
+            </div>
+
+          <div class="pestanas" id="pestanas" role="tablist" aria-label="Etapas del compilador">
+            <button class="pestana activa" data-panel="tokens" role="tab">1. Tokens</button>
+            <button class="pestana" data-panel="arbol" role="tab">2. Árbol sintáctico</button>
+            <button class="pestana" data-panel="simbolos" role="tab">3. Símbolos</button>
+            <button class="pestana" data-panel="errores" role="tab">
+              4. Errores / advertencias <span class="badge" id="badgeErrores">0</span>
             </button>
+            <button class="pestana" data-panel="expresion" role="tab">5. Código intermedio</button>
+            <button class="pestana" data-panel="tabla" role="tab">6. Resultados · Tabla</button>
+            <button class="pestana" data-panel="diagrama" role="tab">6. Resultados · Diagrama</button>
+            <button class="pestana" data-panel="pasos" role="tab">7. Paso a paso</button>
           </div>
 
           <div class="cuerpo-paneles">
-            <!-- Pestaña 1: diagrama con zoom y desplazamiento -->
-            <div class="panel-contenido activa" id="panel-diagrama">
+            <!-- Fase 1: tokens -->
+            <div class="panel-contenido activa" id="panel-tokens">
+              <div class="filtros">
+                <label>Tipo de token
+                  <select id="filtroToken"><option value="">Todos</option></select>
+                </label>
+                <span id="infoTokens" class="ayuda"></span>
+              </div>
+              <div class="tabla-scroll">
+                <table id="tablaTokens"></table>
+              </div>
+            </div>
+
+            <!-- Fase 2: árbol sintáctico -->
+            <div class="panel-contenido" id="panel-arbol">
+              <pre id="arbolSintactico" class="codigo-expresion mono"></pre>
+              <p id="arbolVacio" class="vacio-panel">Analiza un circuito para ver su árbol sintáctico.</p>
+            </div>
+
+            <!-- Fase 3: tabla de símbolos -->
+            <div class="panel-contenido" id="panel-simbolos">
+              <div class="tabla-scroll">
+                <table id="tablaSimbolos"></table>
+              </div>
+              <p id="simbolosVacio" class="vacio-panel">Analiza un circuito para ver su tabla de símbolos.</p>
+            </div>
+
+            <!-- Fase 4: errores y advertencias -->
+            <div class="panel-contenido" id="panel-errores">
+              <h3>Errores</h3>
+              <ul id="listaErrores" class="lista-errores-ui"></ul>
+              <h3>Advertencias</h3>
+              <ul id="listaAdvertencias" class="lista-errores-ui"></ul>
+              <p class="ayuda">Haz clic en un diagnóstico para saltar a esa línea del circuito.</p>
+            </div>
+
+            <!-- Fase 5: representación intermedia -->
+            <div class="panel-contenido" id="panel-expresion">
+              <div class="filtros">
+                <label>Notación
+                  <select id="notacionExpresion">
+                    <option value="simbolos">Símbolos (¬ · ⊕ +)</option>
+                    <option value="ascii">ASCII (! &amp; ^ |)</option>
+                  </select>
+                </label>
+                <span class="acciones-expresion">
+                  <button id="copiarExpresion" disabled>Copiar</button>
+                </span>
+                <span id="infoExpresion" class="ayuda"></span>
+              </div>
+              <div id="listaExpresiones"></div>
+              <p id="expresionVacio" class="vacio-panel">
+                Analiza un circuito para ver su código intermedio.
+              </p>
+            </div>
+
+            <!-- Resultados -->
+            <div class="panel-contenido" id="panel-diagrama">
               <div class="visor" id="visor">
                 <div class="lienzo" id="lienzo"></div>
                 <p id="diagramaVacio" class="vacio">Analiza un circuito para ver el diagrama.</p>
@@ -100,7 +271,7 @@
               </div>
             </div>
 
-            <!-- Pestaña 2: tabla de verdad (con filtros y carga por bloques) -->
+            <!-- Tabla de verdad con filtros y carga por bloques -->
             <div class="panel-contenido" id="panel-tabla">
               <div class="filtros">
                 <label>Salida
@@ -123,44 +294,33 @@
               <button id="cargarMas" class="cargar-mas">Cargar más filas</button>
             </div>
 
-            <!-- Pestaña 3: expresiones booleanas (intermedia y expandida) -->
-            <div class="panel-contenido" id="panel-expresion">
-              <div class="filtros">
-                <label>Notación
-                  <select id="notacionExpresion">
-                    <option value="simbolos">Símbolos (¬ · ⊕ +)</option>
-                    <option value="ascii">ASCII (! &amp; ^ |)</option>
-                  </select>
-                </label>
-                <span class="acciones-expresion">
-                  <button id="copiarExpresion" disabled>Copiar</button>
-                </span>
-                <span id="infoExpresion" class="ayuda"></span>
-              </div>
-              <div id="listaExpresiones"></div>
-              <p id="expresionVacio" class="vacio-panel">
-                Analiza un circuito para ver sus expresiones.
+            <div class="panel-contenido" id="panel-pasos">
+              <p id="pasosVacio" class="vacio-panel">
+                Analiza un circuito para ejecutar sus compuertas paso a paso.
               </p>
+              <div id="simuladorPasos" class="simulador-pasos oculto">
+                <section aria-labelledby="tituloEntradasPaso">
+                  <h3 id="tituloEntradasPaso">Valores de entrada</h3>
+                  <div id="entradasPaso" class="entradas-simulacion"></div>
+                </section>
+                <div class="controles controles-pasos">
+                  <button id="pasoPrimero" title="Ir al primer paso" aria-label="Ir al primer paso">⏮</button>
+                  <button id="pasoAnterior" title="Paso anterior" aria-label="Paso anterior">◀</button>
+                  <button id="pasoReproducir" class="primario" aria-pressed="false">▶ Reproducir</button>
+                  <button id="pasoSiguiente" title="Paso siguiente" aria-label="Paso siguiente">▶</button>
+                  <button id="pasoUltimo" title="Ir al último paso" aria-label="Ir al último paso">⏭</button>
+                  <span id="contadorPasos" class="mono" aria-live="polite"></span>
+                </div>
+                <section class="detalle-paso" aria-live="polite">
+                  <h3 id="tituloPasoActual">Selecciona una entrada</h3>
+                  <p id="detallePasoActual" class="mono"></p>
+                  <p id="resultadoSimulacion" class="resultado-simulacion"></p>
+                </section>
+                <ol id="listaPasos" class="lista-pasos" aria-label="Pasos de evaluación"></ol>
+              </div>
             </div>
 
-            <!-- Pestaña 4: tokens -->
-            <div class="panel-contenido" id="panel-tokens">
-              <div class="filtros">
-                <label>Tipo de token
-                  <select id="filtroToken"><option value="">Todos</option></select>
-                </label>
-                <span id="infoTokens" class="ayuda"></span>
-              </div>
-              <div class="tabla-scroll">
-                <table id="tablaTokens"></table>
-              </div>
-            </div>
-
-            <!-- Pestaña 5: errores -->
-            <div class="panel-contenido" id="panel-errores">
-              <ul id="listaErrores" class="lista-errores-ui"></ul>
-              <p class="ayuda">Haz clic en un error para saltar a esa línea del circuito.</p>
-            </div>
+          </div>
           </div>
         </div>
       </div>
@@ -168,9 +328,28 @@
 
     <!-- ============================ RUTA #/historial ==================== -->
     <section id="vista-historial" class="vista oculto">
-      <div class="panel">
+      <section class="page-banner page-banner-historial">
+        <span class="hero-etiqueta">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h8"/><circle cx="2.5" cy="5.5" r=".7" fill="currentColor" stroke="none"/><circle cx="2.5" cy="10" r=".7" fill="currentColor" stroke="none"/><circle cx="2.5" cy="14.5" r=".7" fill="currentColor" stroke="none"/></svg>
+          Tus circuitos, en un solo lugar
+        </span>
+        <h1>Historial de análisis</h1>
+        <p>Recupera un circuito de esta sesión y continúa explorándolo.</p>
+        <svg class="banner-ornamento" viewBox="0 0 240 150" fill="none" aria-hidden="true">
+          <path d="M15 111c40-47 62-44 97-12 40 36 67 18 112-30" stroke="#75A980" stroke-width="2"/>
+          <circle cx="15" cy="111" r="7" fill="#F7FCF5" stroke="#75A980" stroke-width="2"/>
+          <circle cx="112" cy="99" r="9" fill="#fff" stroke="#75A980" stroke-width="2"/>
+          <circle cx="224" cy="69" r="7" fill="#F7FCF5" stroke="#75A980" stroke-width="2"/>
+          <path d="M35 74c0-14 11-25 25-25s25 11 25 25H35Zm118 56c0-12 9-21 21-21s21 9 21 21h-42Z" fill="#AFCFA8"/>
+          <path d="M56 74v19m137 37v15" stroke="#A87955" stroke-width="5" stroke-linecap="round"/>
+        </svg>
+      </section>
+      <div class="panel panel-pagina">
         <div class="cabecera-resultados">
-          <h2>Historial de análisis</h2>
+          <div>
+            <span class="sobrelinea">Sesión actual</span>
+            <h2>Actividad reciente</h2>
+          </div>
           <button id="limpiarHistorial">Limpiar historial</button>
         </div>
         <p class="ayuda">
@@ -182,8 +361,25 @@
 
     <!-- ============================ RUTA #/background ==================== -->
     <section id="vista-background" class="vista oculto">
-      <div class="panel">
-        <h2>Fondo visual</h2>
+      <section class="page-banner page-banner-fondo">
+        <span class="hero-etiqueta">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5v13M3.5 10h13M5.4 5.4l9.2 9.2m0-9.2-9.2 9.2"/></svg>
+          Personaliza el ambiente
+        </span>
+        <h1>Un espacio a tu manera</h1>
+        <p>Elige un tono suave para acompañar tus diagramas y sesiones de análisis.</p>
+        <span class="fondo-ornamento" aria-hidden="true"></span>
+      </section>
+      <div class="panel panel-pagina panel-fondo">
+        <div class="panel-titulo">
+          <span class="panel-icono icono-fondo" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4m0-11.4L6.3 17.7"/></svg>
+          </span>
+          <div>
+            <span class="sobrelinea">Apariencia</span>
+            <h2>Fondo visual</h2>
+          </div>
+        </div>
         <p class="ayuda">
           Elige un fondo predefinido o escribe un color libre. El color se
           aplica a esta página y también al diagrama del circuito (el esquema

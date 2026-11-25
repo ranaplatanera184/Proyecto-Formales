@@ -23,6 +23,7 @@ const COLOR_INICIAL = "#FFFFFF";
 const CLAVE_FONDO = "jace.fondo";
 const FILAS_POR_BLOQUE = 32;      // la tabla de verdad se dibuja de 32 en 32
 const ESPERA_VALIDACION = 600;    // debounce para validar mientras se escribe
+const INTERVALO_PASOS_MS = 700;
 const ZOOM_MINIMO = 0.2;
 const ZOOM_MAXIMO = 6;
 
@@ -37,6 +38,9 @@ const estado = {
   autoAjustar: true,          // mientras sea true se reajusta al redimensionar
   tabla: { senales: [], filas: [], senalFiltro: "", valorFiltro: "", mostradas: 0 },
   tokens: [],
+  ast: null,
+  tablaSimbolos: [],
+  depurador: { valoresEntrada: {}, indice: 0, temporizador: null, pasos: [] },
   expresionNotacion: "simbolos",  // símbolos (¬ · ⊕ +) o ascii (! & ^ |)
   controladorValidacion: null,
 };
@@ -82,29 +86,34 @@ function aplicarTema(color) {
         "--panel": "rgba(15, 23, 42, 0.55)",
         "--panel-solido": "#111a2e",
         "--panel-borde": "rgba(255, 255, 255, 0.16)",
-        "--acento": "#8b949f",
-        "--acento-texto": "#0b1220",
-        "--error": "#f87171",
-        "--ok": "#4ade80",
+      "--acento": "#8fbd91",
+      "--acento-texto": "#102015",
+      "--error": "#ff8e83",
+      "--ok": "#83d497",
+      "--menta": "#25392d",
+      "--celeste": "#243a39",
         "--sombra": "0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35)"
       }
     : {
-        "--texto": "#111827",
-        "--tenue": "#6b7280",
-        "--panel": "rgba(255, 255, 255, 0.72)",
-        "--panel-solido": "#FFFFFF",
-        "--panel-borde": "rgba(0, 0, 0, 0.12)",
-        "--acento": "#8a92a3",
+      "--texto": "#26372c",
+      "--tenue": "#738175",
+      "--panel": "rgba(255, 255, 255, 0.86)",
+      "--panel-solido": "#fffefa",
+      "--panel-borde": "rgba(54, 91, 61, 0.14)",
+      "--acento": "#4b8058",
         "--acento-texto": "#ffffff",
-        "--error": "#dc2626",
-        "--ok": "#16a34a",
-        "--sombra": "0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.06)"
+      "--error": "#b94d48",
+      "--ok": "#438253",
+      "--menta": "#e8f1e4",
+      "--celeste": "#e5f1ef",
+      "--sombra": "0 16px 42px rgba(48, 72, 50, 0.09)"
       };
 
   variables["--fondo"] = color;
   for (const [nombre, valor] of Object.entries(variables)) {
     document.documentElement.style.setProperty(nombre, valor);
   }
+  document.documentElement.dataset.tema = oscuro ? "oscuro" : "claro";
 
   $("#muestraFondo").style.background = color;
   $("#textoFondo").textContent = color;
@@ -186,6 +195,7 @@ function vistaActual() {
 
 function mostrarVista() {
   const vista = vistaActual();
+  if (vista !== "analisis") detenerReproduccion();
   $("#vista-analisis").classList.toggle("oculto", vista !== "analisis");
   $("#vista-historial").classList.toggle("oculto", vista !== "historial");
   $("#vista-background").classList.toggle("oculto", vista !== "background");
@@ -213,8 +223,10 @@ function programarValidacion() {
 }
 
 async function validar() {
-  const codigo = $("#codigo").value.trim();
-  if (!codigo) return;
+  // Se envía el texto tal cual (sin trim): así los números de línea que
+  // devuelve el compilador coinciden con los del editor.
+  const codigo = $("#codigo").value;
+  if (!codigo.trim()) return;
 
   // Se cancela la validación anterior si todavía no ha respondido.
   if (estado.controladorValidacion) estado.controladorValidacion.abort();
@@ -230,8 +242,16 @@ async function validar() {
     });
     const datos = await respuesta.json();
     // La validación aporta los tokens para ubicar la columna del error.
-    if (datos.tokens && datos.tokens.length) estado.tokens = datos.tokens;
-    pintarErrores(datos.errores || [], { automatico: true });
+    estado.tokens = datos.tokens || [];
+    estado.ast = datos.ast || null;
+    estado.tablaSimbolos = datos.tabla_simbolos || [];
+    pintarTokens(estado.tokens);
+    pintarAst();
+    pintarTablaSimbolos();
+    pintarErrores(datos.errores || [], {
+      automatico: true,
+      advertencias: datos.advertencias || []
+    });
   } catch (error) {
     if (error.name !== "AbortError") {
       avisar(`No se pudo validar: ${error}`, true);
@@ -239,35 +259,23 @@ async function validar() {
   }
 }
 
-// El servidor descarta los comentarios y las líneas vacías del principio, así
-// que los números de línea que devuelve hay que desplazarlos hasta la línea
-// real del editor.
-function primeraLineaUtil() {
-  const lineas = $("#codigo").value.split("\n");
-  let indice = 0;
-  while (indice < lineas.length) {
-    const texto = lineas[indice].trim();
-    if (texto !== "" && !texto.startsWith("#")) break;
-    indice++;
-  }
-  return indice;
-}
-
+// El compilador analiza el texto tal cual y conserva los comentarios y las
+// líneas vacías, así que los números de línea que devuelve ya son los del
+// editor: no hay que aplicar ningún desplazamiento.
 function saltarALinea(linea) {
   const editor = $("#codigo");
   const lineas = editor.value.split("\n");
-  const real = linea + primeraLineaUtil();
-  if (!linea || linea < 1 || real > lineas.length) return;
+  if (!linea || linea < 1 || linea > lineas.length) return;
 
   let inicio = 0;
-  for (let i = 0; i < real - 1; i++) inicio += lineas[i].length + 1;
-  const fin = inicio + lineas[real - 1].length;
+  for (let i = 0; i < linea - 1; i++) inicio += lineas[i].length + 1;
+  const fin = inicio + lineas[linea - 1].length;
 
   editor.focus();
   editor.setSelectionRange(inicio, fin);
   // Altura de línea aproximada (14 px de fuente * 1.6) para centrar la línea.
   const alturaLinea = 22;
-  editor.scrollTop = Math.max(0, (real - 3) * alturaLinea);
+  editor.scrollTop = Math.max(0, (linea - 3) * alturaLinea);
 }
 
 /* ======================================================================== */
@@ -275,14 +283,15 @@ function saltarALinea(linea) {
 /* ======================================================================== */
 async function analizar() {
   const boton = $("#analizar");
-  const codigo = $("#codigo").value.trim();
+  const codigo = $("#codigo").value;
 
-  if (!codigo) {
+  if (!codigo.trim()) {
     avisar("Escribe un circuito o pulsa «Cargar ejemplo».", true);
     return;
   }
 
   boton.disabled = true;
+  detenerReproduccion();
   const inicio = performance.now();
   avisar("Analizando...");
   $("#errorColor").classList.add("oculto");
@@ -305,6 +314,8 @@ async function analizar() {
 function mostrarResultado(datos, segundos) {
   estado.resultado = datos;
   estado.tokens = datos.tokens || [];
+  estado.ast = datos.ast || null;
+  estado.tablaSimbolos = datos.tabla_simbolos || [];
 
   const tabla = datos.tabla_verdad || {};
   const filas = tabla.filas || [];
@@ -316,11 +327,14 @@ function mostrarResultado(datos, segundos) {
   $("#datoTiempo").textContent = segundos.toFixed(1);
 
   const errores = datos.errores || [];
-  pintarErrores(errores);
+  pintarErrores(errores, { advertencias: datos.advertencias || [] });
   pintarDiagrama(datos.diagrama_svg || "");
   pintarTablaVerdad(tabla);
   pintarExpresiones();
   pintarTokens(estado.tokens);
+  pintarAst();
+  pintarTablaSimbolos();
+  prepararDepurador(datos);
 
   const hayDiagrama = Boolean(datos.diagrama_svg);
   $("#botonExportar").disabled = !datos.exito;
@@ -342,6 +356,218 @@ function mostrarResultado(datos, segundos) {
   if (vistaActual() === "historial") cargarHistorial();
 }
 
+function prepararDepurador(datos) {
+  detenerReproduccion();
+  const depurador = estado.depurador;
+  depurador.indice = 0;
+  depurador.pasos = [];
+  depurador.valoresEntrada = Object.fromEntries(
+    (datos.entradas || []).map((senal) => [senal, 0])
+  );
+
+  const disponible = Boolean(
+    datos.exito && datos.tabla_verdad?.filas?.length &&
+    datos.orden_topologico?.length
+  );
+  $("#simuladorPasos").classList.toggle("oculto", !disponible);
+  $("#pasosVacio").classList.toggle("oculto", disponible);
+
+  if (!disponible) {
+    $("#pasosVacio").textContent = datos.exito
+      ? "No hay pasos de compuerta para mostrar."
+      : "Analiza un circuito válido para ejecutar sus compuertas paso a paso.";
+    $("#entradasPaso").replaceChildren();
+    $("#listaPasos").replaceChildren();
+    return;
+  }
+
+  pintarEntradasSimulacion();
+  pintarDepurador();
+}
+
+function pintarEntradasSimulacion() {
+  const contenedor = $("#entradasPaso");
+  contenedor.replaceChildren();
+
+  for (const senal of estado.resultado.entradas || []) {
+    const boton = document.createElement("button");
+    const valor = estado.depurador.valoresEntrada[senal];
+    boton.type = "button";
+    boton.className = "entrada-simulacion";
+    boton.setAttribute("aria-pressed", String(valor === 1));
+    boton.setAttribute("aria-label", `Cambiar entrada ${senal}, valor actual ${valor}`);
+    const nombre = document.createElement("span");
+    nombre.className = "mono";
+    nombre.textContent = senal;
+    const indicador = document.createElement("strong");
+    indicador.textContent = String(valor);
+    boton.append(nombre, indicador);
+    boton.classList.toggle("activa", valor === 1);
+    boton.addEventListener("click", () => {
+      detenerReproduccion();
+      estado.depurador.valoresEntrada[senal] =
+        estado.depurador.valoresEntrada[senal] === 1 ? 0 : 1;
+      estado.depurador.indice = 0;
+      pintarEntradasSimulacion();
+      pintarDepurador();
+    });
+    contenedor.appendChild(boton);
+  }
+}
+
+function valoresDeCombinacionActual() {
+  const tabla = estado.resultado?.tabla_verdad;
+  if (!tabla?.señales || !tabla?.filas) return null;
+
+  const entradas = estado.resultado.entradas || [];
+  const indices = entradas.map((senal) => tabla.señales.indexOf(senal));
+  if (indices.some((indice) => indice < 0)) return null;
+
+  const fila = tabla.filas.find((candidata) =>
+    indices.every((indice, posicion) =>
+      candidata[indice] === estado.depurador.valoresEntrada[entradas[posicion]])
+  );
+  if (!fila) return null;
+
+  return Object.fromEntries(tabla.señales.map((senal, indice) => [senal, fila[indice]]));
+}
+
+function pasosDeCombinacion(valores) {
+  if (!valores) return null;
+  return (estado.resultado.orden_topologico || []).map((compuerta) => ({
+    compuerta: compuerta.compuerta,
+    salida: compuerta.salida,
+    linea: compuerta.linea,
+    entradas: compuerta.entradas.map((senal) => ({
+      senal,
+      valor: valores[senal],
+    })),
+    valor: valores[compuerta.salida],
+  }));
+}
+
+function pintarDepurador() {
+  const depurador = estado.depurador;
+  const valores = valoresDeCombinacionActual();
+  const pasos = pasosDeCombinacion(valores);
+  const lista = $("#listaPasos");
+  lista.replaceChildren();
+
+  if (!pasos) {
+    depurador.pasos = [];
+    $("#contadorPasos").textContent = "No se encontró esa combinación.";
+    $("#tituloPasoActual").textContent = "No se pudo simular";
+    $("#detallePasoActual").textContent = "";
+    $("#resultadoSimulacion").textContent = "";
+    return;
+  }
+
+  depurador.pasos = pasos;
+  depurador.indice = limitar(depurador.indice, 0, pasos.length - 1);
+  const pasoActual = pasos[depurador.indice];
+  $("#contadorPasos").textContent = `Paso ${depurador.indice + 1} de ${pasos.length}`;
+  $("#tituloPasoActual").textContent =
+    `${pasoActual.compuerta} → ${pasoActual.salida} (línea ${pasoActual.linea})`;
+  $("#detallePasoActual").textContent =
+    `${pasoActual.compuerta}[${pasoActual.entradas
+      .map(({ senal, valor }) => `${senal}=${valor}`)
+      .join(", ")}] → ${pasoActual.salida} = ${pasoActual.valor}`;
+
+  const compuertas = estado.resultado.compuertas || [];
+  const usadas = new Set(compuertas.flatMap((compuerta) => compuerta.entradas));
+  const salidas = compuertas
+    .map((compuerta) => compuerta.salida)
+    .filter((senal) => !usadas.has(senal));
+  $("#resultadoSimulacion").textContent =
+    depurador.indice === pasos.length - 1
+      ? `Salidas: ${salidas.map((senal) => `${senal} = ${
+          valores[senal]
+        }`).join(" · ")}`
+      : "Las salidas finales aparecerán al terminar los pasos.";
+
+  pasos.forEach((paso, indice) => {
+    const elemento = document.createElement("li");
+    const boton = document.createElement("button");
+    const pendiente = indice > depurador.indice;
+    boton.type = "button";
+    boton.className = "paso-item";
+    if (indice === depurador.indice) {
+      boton.setAttribute("aria-current", "step");
+    }
+
+    const cuerpo = pendiente
+      ? `${paso.compuerta} → ${paso.salida} (pendiente)`
+      : `${paso.compuerta}[${paso.entradas
+          .map(({ senal, valor }) => `${senal}=${valor}`)
+          .join(", ")}] → ${paso.salida} = ${paso.valor}`;
+    boton.textContent = `${indice + 1}. ${cuerpo}`;
+    boton.addEventListener("click", () => {
+      detenerReproduccion();
+      depurador.indice = indice;
+      pintarDepurador();
+    });
+    elemento.appendChild(boton);
+    lista.appendChild(elemento);
+  });
+
+  $("#pasoPrimero").disabled = depurador.indice === 0;
+  $("#pasoAnterior").disabled = depurador.indice === 0;
+  $("#pasoSiguiente").disabled = depurador.indice === pasos.length - 1;
+  $("#pasoUltimo").disabled = depurador.indice === pasos.length - 1;
+  $("#pasoReproducir").disabled = pasos.length < 2;
+  $("#pasoReproducir").setAttribute(
+    "aria-pressed",
+    String(depurador.temporizador !== null)
+  );
+  $("#pasoReproducir").textContent =
+    depurador.temporizador !== null ? "⏸ Pausar" : "▶ Reproducir";
+}
+
+function detenerReproduccion() {
+  if (estado.depurador.temporizador !== null) {
+    clearInterval(estado.depurador.temporizador);
+    estado.depurador.temporizador = null;
+  }
+  const boton = $("#pasoReproducir");
+  if (boton) {
+    boton.textContent = "▶ Reproducir";
+    boton.setAttribute("aria-pressed", "false");
+  }
+}
+
+function cambiarPaso(indice) {
+  detenerReproduccion();
+  if (!estado.depurador.pasos.length) return;
+  estado.depurador.indice = limitar(indice, 0, estado.depurador.pasos.length - 1);
+  pintarDepurador();
+}
+
+function alternarReproduccion() {
+  const depurador = estado.depurador;
+  if (depurador.temporizador !== null) {
+    detenerReproduccion();
+    pintarDepurador();
+    return;
+  }
+  if (depurador.pasos.length < 2) return;
+  if (depurador.indice === depurador.pasos.length - 1) depurador.indice = 0;
+
+  depurador.temporizador = setInterval(() => {
+    if (depurador.indice >= depurador.pasos.length - 1) {
+      detenerReproduccion();
+      pintarDepurador();
+      return;
+    }
+    depurador.indice += 1;
+    pintarDepurador();
+    if (depurador.indice === depurador.pasos.length - 1) {
+      detenerReproduccion();
+      pintarDepurador();
+    }
+  }, INTERVALO_PASOS_MS);
+  pintarDepurador();
+}
+
 /* ======================================================================== */
 /* 6. Pestañas del panel de resultados                                       */
 /* ======================================================================== */
@@ -356,10 +582,10 @@ function activarPestana(nombre) {
   if (nombre === "diagrama") requestAnimationFrame(ajustarDiagrama);
 }
 
-function actualizarPestanaErrores(cantidad) {
+function actualizarPestanaErrores(cantidad, advertencias = 0) {
   const pestana = document.querySelector('.pestana[data-panel="errores"]');
-  $("#badgeErrores").textContent = cantidad;
-  pestana.classList.toggle("oculto", cantidad === 0);
+  $("#badgeErrores").textContent = cantidad + advertencias;
+  pestana.classList.toggle("oculto", cantidad === 0 && advertencias === 0);
 }
 
 /* ======================================================================== */
@@ -630,6 +856,39 @@ function pintarTablaTokens() {
   $("#infoTokens").textContent = `${tokens.length} de ${estado.tokens.length} token(s)`;
 }
 
+function pintarAst() {
+  const arbol = $("#arbolSintactico");
+  const disponible = Boolean(estado.ast);
+  arbol.textContent = disponible ? JSON.stringify(estado.ast, null, 2) : "";
+  arbol.classList.toggle("oculto", !disponible);
+  $("#arbolVacio").classList.toggle("oculto", disponible);
+}
+
+function pintarTablaSimbolos() {
+  const tabla = $("#tablaSimbolos");
+  const simbolos = estado.tablaSimbolos;
+  tabla.innerHTML = "<thead><tr><th>Señal</th><th>Tipo</th><th>Línea de declaración</th><th>Líneas de uso</th></tr></thead>";
+  const cuerpo = document.createElement("tbody");
+  for (const simbolo of simbolos) {
+    const fila = document.createElement("tr");
+    for (const valor of [
+      simbolo.senal,
+      simbolo.tipo,
+      simbolo.linea_declaracion,
+      simbolo.lineas_uso.join(", ") || "—"
+    ]) {
+      const celda = document.createElement("td");
+      celda.textContent = valor;
+      fila.appendChild(celda);
+    }
+    cuerpo.appendChild(fila);
+  }
+  tabla.appendChild(cuerpo);
+  const disponible = simbolos.length > 0;
+  tabla.classList.toggle("oculto", !disponible);
+  $("#simbolosVacio").classList.toggle("oculto", disponible);
+}
+
 /* ======================================================================== */
 /* 9. Expresiones booleanas (forma intermedia y expandida)                   */
 /* ======================================================================== */
@@ -753,13 +1012,13 @@ async function copiarExpresiones() {
 /* ======================================================================== */
 function analizarError(mensaje) {
   const texto = String(mensaje);
-  const coincidencia = /^Error\s+(\S+)\s+línea\s+(\d+)(?:[^:]*columna\s+(\d+))?:\s*([\s\S]*)$/i.exec(texto);
+  const coincidencia = /^(Error|Advertencia)(?:\s+(\S+))?\s+línea\s+(\d+)(?:[^:]*columna\s+(\d+))?:\s*([\s\S]*)$/i.exec(texto);
   if (coincidencia) {
     return {
-      tipo: coincidencia[1],
-      linea: parseInt(coincidencia[2], 10),
-      columna: coincidencia[3] ? parseInt(coincidencia[3], 10) : null,
-      mensaje: coincidencia[4]
+      tipo: coincidencia[2] || coincidencia[1],
+      linea: parseInt(coincidencia[3], 10),
+      columna: coincidencia[4] ? parseInt(coincidencia[4], 10) : null,
+      mensaje: coincidencia[5]
     };
   }
   return { tipo: "Error", linea: null, columna: null, mensaje: texto };
@@ -767,15 +1026,16 @@ function analizarError(mensaje) {
 
 function columnaDeLinea(linea) {
   if (!linea) return null;
-  const real = linea + primeraLineaUtil();
-  const token = estado.tokens.find((t) => t.linea === linea)
-    || estado.tokens.find((t) => t.linea === real);
+  const token = estado.tokens.find((t) => t.linea === linea);
   return token ? token.columna : null;
 }
 
 function pintarErrores(errores, opciones = {}) {
   const lista = $("#listaErrores");
+  const listaAdvertencias = $("#listaAdvertencias");
+  const advertencias = opciones.advertencias || [];
   lista.innerHTML = "";
+  listaAdvertencias.innerHTML = "";
 
   for (const mensaje of errores) {
     const info = analizarError(mensaje);
@@ -802,7 +1062,25 @@ function pintarErrores(errores, opciones = {}) {
     lista.appendChild(item);
   }
 
-  actualizarPestanaErrores(errores.length);
+  for (const mensaje of advertencias) {
+    const info = analizarError(mensaje);
+    const item = document.createElement("li");
+    item.classList.add("advertencia");
+
+    const posicion = document.createElement("span");
+    posicion.className = "posicion";
+    posicion.textContent = info.linea ? `línea ${info.linea}` : "general";
+
+    const cuerpo = document.createElement("span");
+    cuerpo.textContent = `${info.tipo}: ${info.mensaje}`;
+
+    item.appendChild(posicion);
+    item.appendChild(cuerpo);
+    if (info.linea) item.addEventListener("click", () => saltarALinea(info.linea));
+    listaAdvertencias.appendChild(item);
+  }
+
+  actualizarPestanaErrores(errores.length, advertencias.length);
   // Con validación automática solo se muestran; el resultado anterior se conserva.
   if (errores.length > 0 && !opciones.automatico) activarPestana("errores");
 }
@@ -999,6 +1277,16 @@ function conectarEventos() {
     }
   });
   $("#filtroToken").addEventListener("change", pintarTablaTokens);
+
+  // Depurador por pasos sobre la tabla de verdad y el orden topológico.
+  $("#pasoPrimero").addEventListener("click", () => cambiarPaso(0));
+  $("#pasoAnterior").addEventListener("click", () =>
+    cambiarPaso(estado.depurador.indice - 1));
+  $("#pasoReproducir").addEventListener("click", alternarReproduccion);
+  $("#pasoSiguiente").addEventListener("click", () =>
+    cambiarPaso(estado.depurador.indice + 1));
+  $("#pasoUltimo").addEventListener("click", () =>
+    cambiarPaso(estado.depurador.pasos.length - 1));
 
   // Expresiones booleanas
   $("#notacionExpresion").addEventListener("change", (evento) => {

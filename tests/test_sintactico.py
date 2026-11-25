@@ -25,6 +25,17 @@ def test_circuito_valido():
     assert circuito["compuertas"][0]["compuerta"] == "AND"
     assert circuito["compuertas"][0]["entradas"] == ["a", "b"]
     assert circuito["compuertas"][0]["salida"] == "x1"
+    assert circuito["ast"]["declaracion_entradas"]["entradas"][0] == {
+        "tipo": "senal", "nombre": "a"
+    }
+    assert circuito["ast"]["instrucciones"][0]["expresion"] == {
+        "tipo": "compuerta",
+        "nombre": "AND",
+        "entradas": [
+            {"tipo": "senal", "nombre": "a"},
+            {"tipo": "senal", "nombre": "b"},
+        ],
+    }
 
 
 def test_falta_entrada():

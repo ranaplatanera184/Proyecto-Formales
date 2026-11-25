@@ -9,8 +9,7 @@
 #   <instruccion> ::= <compuerta> "[" <id> ("," <id>)* "]" "->" <id>
 #   <compuerta>   ::= "AND" | "OR" | "NOT" | "XOR" | "NAND" | "NOR" | "XNOR"
 #
-# Como resultado construye la estructura interna del circuito: una lista de
-# compuertas (con sus entradas, salida y linea) y la lista de entradas.
+# Como resultado construye la estructura interna del circuito y un AST JSON.
 # ============================================================================
 
 import json
@@ -45,7 +44,9 @@ class AnalisisSintactico:
 
     def _error_linea(self, token, mensaje):
         linea = getattr(token, "linea", None) or 1
-        return f"Error sintáctico línea {linea}: {mensaje}"
+        columna = getattr(token, "columna", None)
+        posicion = f"línea {linea}, columna {columna}" if columna else f"línea {linea}"
+        return f"Error sintáctico {posicion}: {mensaje}"
 
     def _error_fin(self, mensaje):
         ultimo = self.tokens[-1] if self.tokens else None
@@ -102,9 +103,13 @@ class AnalisisSintactico:
 
         linea_entrada = token_entrada.linea or 1
         entradas = self._consumir_lista_identificadores()
+        nodos_entrada = [
+            {"tipo": "senal", "nombre": nombre} for nombre in entradas
+        ]
 
         # <instruccion>+ : una o mas compuertas.
         compuertas = []
+        instrucciones_ast = []
         while self.pos < len(self.tokens):
             token_compuerta = self.actual()
 
@@ -136,6 +141,20 @@ class AnalisisSintactico:
                 "salida": salida.valor,
                 "linea": linea,
             })
+            compuertas_ast = {
+                "tipo": "compuerta",
+                "nombre": nombre,
+                "entradas": [
+                    {"tipo": "senal", "nombre": entrada}
+                    for entrada in entradas_gate
+                ],
+            }
+            instrucciones_ast.append({
+                "tipo": "asignacion",
+                "salida": salida.valor,
+                "linea": linea,
+                "expresion": compuertas_ast,
+            })
 
         if not compuertas:
             raise SyntaxError(
@@ -145,4 +164,13 @@ class AnalisisSintactico:
             "entradas": entradas,
             "linea_entrada": linea_entrada,
             "compuertas": compuertas,
+            "ast": {
+                "tipo": "circuito",
+                "declaracion_entradas": {
+                    "tipo": "declaracion_entradas",
+                    "linea": linea_entrada,
+                    "entradas": nodos_entrada,
+                },
+                "instrucciones": instrucciones_ast,
+            },
         }

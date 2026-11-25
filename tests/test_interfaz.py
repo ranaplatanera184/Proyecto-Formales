@@ -265,6 +265,22 @@ def test_validar_circuito_valido():
     assert datos["exito"] is True
     assert datos["errores"] == []
     assert len(datos["tokens"]) > 0
+    assert datos["ast"]["tipo"] == "circuito"
+    assert [simbolo["senal"] for simbolo in datos["tabla_simbolos"]] == [
+        "a", "b", "x", "salida"
+    ]
+
+
+def test_validar_devuelve_advertencias_sin_invalidar_circuito():
+    datos = cliente().post(
+        "/validar",
+        json={"codigo": "ENTRADA[a, b]\nNOT[a] -> salida"},
+    ).json()
+    assert datos["exito"] is True
+    assert datos["errores"] == []
+    assert datos["advertencias"] == [
+        "Advertencia línea 1: la entrada b no se utiliza"
+    ]
 
 
 def test_validar_no_registra_en_el_historial():
@@ -287,38 +303,29 @@ def test_validar_solo_comentarios_es_vacio():
 
 
 def test_comentarios_se_omiten_por_la_web():
-    """La consola ignora las líneas '#'; la web debe hacer lo mismo."""
-    from SERVIRCOR import quitar_comentarios
-
+    """El lexer conoce los comentarios: la web los envía sin preprocesarlos."""
     codigo = "# nota\nENTRADA[a, b]\n#otro\nAND[a, b] -> x"
-    limpio = quitar_comentarios(codigo)
-    assert limpio.split("\n") == ["", "ENTRADA[a, b]", "", "AND[a, b] -> x"]
-
     datos = cliente().post("/validar", json={"codigo": codigo}).json()
     assert datos["exito"] is True
     assert datos["errores"] == []
 
 
 def test_comentarios_conservan_el_numero_de_linea():
-    """Se sustituyen por líneas vacías, no se borran: los errores no se corren."""
+    """Los errores usan la línea real del editor, sin desplazamientos."""
     codigo = "# titulo\nENTRADA[a, b]\n# mitad\nXOR[a, z] -> x"
     datos = cliente().post("/validar", json={"codigo": codigo}).json()
-    # El analizador descarta las líneas vacías iniciales, por eso la línea 4 del
-    # editor se reporta como la 3; la web aplica ese desplazamiento al saltar.
     assert datos["errores"] == [
-        "Error semántico línea 3: la señal z no está definida"]
-    assert datos["tokens"][-1]["linea"] == 3
+        "Error semántico línea 4: la señal z no está definida"]
+    assert datos["tokens"][-1]["linea"] == 4
 
 
-def test_web_omite_comentarios_que_romperian_el_analizador():
-    """Sin el filtro, '#' produce errores léxicos en cada línea de comentario."""
-    codigo = "# titulo\nENTRADA[a, b]\nXOR[a, z] -> x"
+def test_el_lexer_ignora_comentarios_sin_preprocesar():
+    """'#' ya es parte del lenguaje, con o sin texto delante."""
+    codigo = "# titulo\nENTRADA[a, b] # entradas\nXOR[a, b] -> x # salida"
     crudo = GestorReglas().analizar(codigo, imprimir=False, con_diagrama=False,
                                     registrar=False)
-    assert any("léxico" in e for e in crudo["errores"])
-
-    datos = cliente().post("/validar", json={"codigo": codigo}).json()
-    assert not any("léxico" in e for e in datos["errores"])
+    assert crudo["exito"] is True
+    assert not any("léxico" in e for e in crudo["errores"])
 
 
 def test_analizar_con_comentarios_y_fondo():
@@ -331,12 +338,13 @@ def test_analizar_con_comentarios_y_fondo():
 
 
 def test_historial_guarda_el_circuito_analizado():
-    """El historial conserva el circuito como lo analiza el compilador."""
+    """El historial conserva el circuito tal como lo escribió el usuario."""
     limpiar_historial_web()
-    cliente().post("/analizar", json={"codigo": "# con nota\nENTRADA[a, b]\nAND[a, b] -> x"})
+    codigo = "# con nota\nENTRADA[a, b]\nAND[a, b] -> x"
+    cliente().post("/analizar", json={"codigo": codigo})
     registro = cliente().get("/historial").json()["analisis"][0]
     assert registro["resultado"] is True
-    assert registro["entrada"] == "ENTRADA[a, b]\nAND[a, b] -> x"
+    assert registro["entrada"] == codigo
     limpiar_historial_web()
 
 
@@ -397,6 +405,13 @@ def test_interfaz_tiene_navegacion_y_pestanas():
                   'id="tablaVerdad"', 'id="tablaTokens"', 'id="listaErrores"',
                   'id="listaHistorial"', 'id="cargarMas"',
                   'id="pantallaCompleta"', 'id="modalDiagrama"',
+                  'data-panel="arbol"', 'id="arbolSintactico"',
+                  'data-panel="simbolos"', 'id="tablaSimbolos"',
+                  'id="listaAdvertencias"',
+                  'data-panel="pasos"', 'id="entradasPaso"',
+                  'id="pasoPrimero"', 'id="pasoAnterior"',
+                  'id="pasoReproducir"', 'id="pasoSiguiente"',
+                  'id="pasoUltimo"', 'id="listaPasos"',
                   'src="exportar.js"', 'src="app.js"']:
         assert pieza in pagina, f"falta en la página: {pieza}"
 
