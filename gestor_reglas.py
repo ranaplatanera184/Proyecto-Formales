@@ -34,9 +34,46 @@ RUTA_REPORTE = "reporte_circuito.txt"
 # Máximo de entradas para calcular la tabla de verdad completa en /analizar
 # (2^14 = 16.384 filas). Por encima se omite y se pide por bloques con la
 # ruta /tabla. Se puede cambiar con la variable de entorno JACE_LIMITE_TABLA.
-LIMITE_TABLA = int(os.environ.get("JACE_LIMITE_TABLA", "14"))
-
 registro = logging.getLogger("jace")
+
+
+def _entero_de_entorno(nombre, por_defecto):
+    """Entero de una variable de entorno; un valor inválido no impide arrancar."""
+    valor = os.environ.get(nombre)
+    if valor is None:
+        return por_defecto
+    try:
+        return int(valor)
+    except ValueError:
+        registro.warning("%s=%r no es un número: se usa %s", nombre, valor, por_defecto)
+        return por_defecto
+
+
+LIMITE_TABLA = _entero_de_entorno("JACE_LIMITE_TABLA", 14)
+
+# Además del número de entradas, la tabla completa se omite si tendría más
+# celdas (filas × columnas) que esto: con 14 entradas y 200 compuertas la
+# respuesta pasaba de 9 MB.
+LIMITE_CELDAS = 2 ** 18
+
+# El diagrama esquemático se omite en circuitos muy grandes (schemdraw tarda
+# decenas de segundos y produce SVG de varios MB). Se cuentan compuertas y
+# conexiones (pines de entrada).
+LIMITE_DIAGRAMA_COMPUERTAS = _entero_de_entorno("JACE_LIMITE_DIAGRAMA", 300)
+LIMITE_DIAGRAMA_PINES = 4 * LIMITE_DIAGRAMA_COMPUERTAS
+
+
+def normalizar_texto(texto):
+    """Texto listo para analizar, sin cambiar los números de línea.
+
+    - Se quita la marca BOM que el Bloc de notas pone al guardar en UTF-8.
+    - Los finales de línea \r\n y \r (Mac antiguo) pasan a \n, como hace el
+      editor de la web, para que las líneas coincidan en los dos lados.
+    - Solo se recorta el final: quitar líneas del principio correría los
+      números de línea que se muestran en los errores.
+    """
+    texto = (texto or "").lstrip("\ufeff")
+    return texto.replace("\r\n", "\n").replace("\r", "\n").rstrip()
 
 
 def mensaje_error_interno(error):
@@ -122,7 +159,7 @@ class GestorReglas:
             if os.environ.get("JACE_DEBUG") == "1":
                 traceback.print_exc()
             resultado = self._resultado_vacio()
-            resultado["texto"] = (texto or "").rstrip()
+            resultado["texto"] = normalizar_texto(texto)
             fallo = diag.Diagnostico("interno", "error", None, None,
                                      mensaje_error_interno(error))
             resultado["errores"] = [fallo.texto()]
@@ -138,7 +175,8 @@ class GestorReglas:
             if resultado["exito"]:
                 self._imprimir_resultado(resultado, escribir_archivos, con_diagrama)
             else:
-                self._imprimir_errores(resultado["errores"], resultado["advertencias"])
+                self._imprimir_errores(resultado["errores"], resultado["advertencias"],
+                                       resultado["diagnosticos"])
 
         # Solo el último análisis exitoso se recuerda para el comando EXPRESIONES:
         # un circuito con errores no deja expresiones que mostrar.
@@ -185,13 +223,14 @@ class GestorReglas:
             "ir": [],
             "optimizacion": None,
             "verilog": None,
+            "diagrama_omitido": None,
         }
 
     def _analizar(self, texto, fondo, escribir_archivos, con_diagrama,
                   con_resultados, limite_tabla):
         # Solo se recorta el final: quitar líneas del principio correría los
         # números de línea que se muestran en los errores.
-        texto = (texto or "").rstrip()
+        texto = normalizar_texto(texto)
         fondo = normalizar_color(fondo) or FONDO
         resultado = self._resultado_vacio()
         resultado["texto"] = texto
@@ -268,7 +307,8 @@ class GestorReglas:
         resultado["orden_topologico"] = semantico.orden_topologico()
 
         total_entradas = len(estructura["entradas"])
-        if total_entradas <= limite_tabla:
+        celdas = 2 ** total_entradas * len(semantico.senales_tabla())
+        if total_entradas <= limite_tabla and celdas <= LIMITE_CELDAS:
             resultado["tabla_verdad"] = semantico.tabla_verdad()
         else:
             # 2^n filas no caben en una respuesta: se omite y la web las pide
@@ -276,11 +316,16 @@ class GestorReglas:
             filas = 2 ** total_entradas
             resultado["tabla_verdad"] = {"señales": semantico.senales_tabla(),
                                          "filas": []}
+            if total_entradas > limite_tabla:
+                motivo = (f"El circuito tiene {total_entradas} entradas: la tabla "
+                          f"completa tendría {filas:,} filas (el límite para "
+                          f"calcularla de una vez es {limite_tabla} entradas)")
+            else:
+                motivo = (f"La tabla completa tendría {filas:,} filas × "
+                          f"{len(semantico.senales_tabla())} columnas = {celdas:,} "
+                          f"celdas (el límite es {LIMITE_CELDAS:,})")
             resultado["tabla_omitida"] = {
-                "motivo": (f"El circuito tiene {total_entradas} entradas: la tabla "
-                           f"completa tendría {filas:,} filas (el límite para "
-                           f"calcularla de una vez es {limite_tabla} entradas)"
-                           ).replace(",", "."),
+                "motivo": motivo.replace(",", "."),
                 "filas_totales": filas,
                 "limite_entradas": limite_tabla,
             }
@@ -322,7 +367,17 @@ class GestorReglas:
         }
         # Diagrama esquemático (SchemDraw) y DOT de respaldo.
         # con_diagrama=False permite validar sin dibujar nada.
-        if con_diagrama:
+        compuertas_total = len(estructura["compuertas"])
+        pines = sum(len(c["entradas"]) for c in estructura["compuertas"])
+        if con_diagrama and (compuertas_total > LIMITE_DIAGRAMA_COMPUERTAS
+                             or pines > LIMITE_DIAGRAMA_PINES):
+            resultado["diagrama_omitido"] = {
+                "motivo": (f"El circuito tiene {compuertas_total} compuertas y {pines} "
+                           f"conexiones: el diagrama se dibuja hasta "
+                           f"{LIMITE_DIAGRAMA_COMPUERTAS} compuertas y "
+                           f"{LIMITE_DIAGRAMA_PINES} conexiones"),
+            }
+        elif con_diagrama:
             # Las constantes usadas se dibujan como terminales de entrada.
             constantes = [c for c in ("0", "1")
                           if any(c in g["entradas"] for g in estructura["compuertas"])]
@@ -362,8 +417,9 @@ class GestorReglas:
                   f"(línea {token['linea']}, columna {token['columna']})")
 
         # Fase 2: árbol sintáctico generado por el parser.
+        # El JSON del árbol solo se exporta desde la web; aquí, árbol ASCII.
         print("\n== ÁRBOL SINTÁCTICO (AST) ==")
-        print(json.dumps(ast, ensure_ascii=False, indent=2))
+        print(resultado["arbol_ascii"])
 
         # Fase 3: tabla de símbolos y posiciones de uso.
         print("\n== TABLA DE SÍMBOLOS ==")
@@ -374,11 +430,21 @@ class GestorReglas:
 
         # Fase 4: advertencias semánticas que no invalidan el circuito.
         print("\n== ADVERTENCIAS ==")
-        for advertencia in advertencias or []:
-            print(f"  - {advertencia}")
+        for d in resultado["diagnosticos"]:
+            if d["severidad"] == "advertencia":
+                print(f"  - {diag.Diagnostico(**d).texto_con_sugerencia()}")
 
         # Fase 5: representación intermedia, en orden topológico.
         print("\n== CÓDIGO INTERMEDIO ==")
+        ancho = max((len(i["destino"]) for i in resultado["ir"]), default=0)
+        for instruccion in resultado["ir"]:
+            print(f"  {instruccion['destino'].ljust(ancho)} = {instruccion['operacion']} "
+                  f"{', '.join(instruccion['argumentos'])}")
+        print("\n== CÓDIGO OPTIMIZADO ==")
+        for instruccion in resultado["optimizacion"]["ir_optimizado"]:
+            print(f"  {instruccion['texto']}")
+
+        print("\n== EXPRESIONES ==")
         for salida, datos in (expresiones_booleanas or {}).items():
             print(f"  {salida}:")
             for linea in datos["intermedia"]:
@@ -394,6 +460,11 @@ class GestorReglas:
         print("\n== TABLA DE VERDAD ==")
         if resultado.get("tabla_omitida"):
             print(f"  {resultado['tabla_omitida']['motivo']}.")
+        # Las temporales (_t1...) se ocultan, como en la web.
+        visibles = [i for i, senal in enumerate(tabla["señales"])
+                    if senal not in set(resultado["temporales"])]
+        tabla = {"señales": [tabla["señales"][i] for i in visibles],
+                 "filas": [[fila[i] for i in visibles] for fila in tabla["filas"]]}
         cabecera = " | ".join(tabla["señales"])
         print(f"  {cabecera}")
         print("  " + "-" * max(len(cabecera), 1))
@@ -405,7 +476,13 @@ class GestorReglas:
 
         print("\nANÁLISIS EXITOSO")
 
-    def _imprimir_errores(self, errores, advertencias=None):
+    def _imprimir_errores(self, errores, advertencias=None, diagnosticos=None):
+        """Errores y advertencias, con la sugerencia de cada uno si la hay."""
+        if diagnosticos is not None:
+            errores = [diag.Diagnostico(**d).texto_con_sugerencia()
+                       for d in diagnosticos if d["severidad"] == "error"]
+            advertencias = [diag.Diagnostico(**d).texto_con_sugerencia()
+                            for d in diagnosticos if d["severidad"] == "advertencia"]
         print("\nERRORES DEL ANÁLISIS:")
         for error in errores:
             print(f"  - {error}")

@@ -15,7 +15,8 @@ import sys
 import traceback
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -38,6 +39,21 @@ app = FastAPI(
     description="Interfaz y API para analizar circuitos lógicos escritos en JACE",
     version=VERSION
 )
+
+
+@app.exception_handler(RequestValidationError)
+def peticion_invalida(request: Request, error: RequestValidationError):
+    """Parámetros mal formados: el mismo formato {exito, errores} en español."""
+    mensajes = []
+    for detalle in error.errors():
+        campo = ".".join(str(p) for p in detalle.get("loc", []) if p != "body")
+        mensajes.append(f"Petición inválida: el campo '{campo or 'cuerpo'}' no es válido "
+                        f"({detalle.get('type', 'valor incorrecto')})")
+    return JSONResponse(status_code=422, content={
+        "exito": False, "errores": mensajes, "advertencias": [],
+        "diagnosticos": [{"fase": "interno", "severidad": "error", "linea": None,
+                          "columna": None, "mensaje": m, "sugerencia": None}
+                         for m in mensajes]})
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +229,7 @@ def tabla_por_bloques(request: TablaRequest):
         semantico, resultado = gestor.preparar_evaluacion(request.codigo)
         if semantico is None:
             return {"exito": False, "errores": resultado["errores"],
+                    "advertencias": resultado["advertencias"],
                     "diagnosticos": resultado["diagnosticos"]}
 
         total = 2 ** len(semantico.entradas)

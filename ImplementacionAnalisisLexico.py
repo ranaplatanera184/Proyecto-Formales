@@ -24,6 +24,15 @@ from Token import Token
 from rutas import cargar_reglas
 import diagnosticos as diag
 
+# Separadores que Python considera espacios (isspace) pero que el editor no
+# muestra como espacio normal: se reportan como caracteres no válidos.
+NO_ESPACIOS = set("\u2028\u2029\x85\x1c\x1d\x1e\x0b\x0c")
+
+
+def _es_espacio(caracter):
+    return caracter.isspace() and caracter not in NO_ESPACIOS
+
+
 # Caracteres que separan lexemas (además de los espacios).
 DELIMITADORES = set("[],#->")
 
@@ -152,7 +161,7 @@ def analizar_linea(linea, numero_linea, palabras_reservadas):
         caracter = linea[i]
 
         # Se ignoran los espacios en blanco (incluido el '\r' de Windows).
-        if caracter.isspace():
+        if _es_espacio(caracter):
             i += 1
             continue
 
@@ -215,7 +224,7 @@ def analizar_linea(linea, numero_linea, palabras_reservadas):
 
         # Lexema: secuencia de caracteres hasta un espacio o un delimitador.
         inicio = i
-        while i < n and not linea[i].isspace() and linea[i] not in DELIMITADORES:
+        while i < n and not _es_espacio(linea[i]) and linea[i] not in DELIMITADORES:
             i += 1
         lexema = linea[inicio:i]
         token, error = _clasificar_lexema(lexema, numero_linea, columna, palabras_reservadas)

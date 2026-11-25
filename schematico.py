@@ -39,6 +39,7 @@ from io import BytesIO
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 import schemdraw
 from schemdraw import logic
@@ -727,12 +728,23 @@ def _svg_en_memoria(circuito):
         circuito.draw(show=False)
     figura = circuito.fig
     fig = figura.getfig()
-    fig.subplots_adjust(0, 0, 1, 1)
-    salida = BytesIO()
-    fig.savefig(salida, format="svg", bbox_inches="tight", transparent=False,
-                dpi=72, bbox_extra_artists=figura.ax.get_default_bbox_extra_artists(),
-                pad_inches=0)
-    return salida.getvalue().decode("utf-8")
+    try:
+        fig.subplots_adjust(0, 0, 1, 1)
+        salida = BytesIO()
+        fig.savefig(salida, format="svg", bbox_inches="tight", transparent=False,
+                    dpi=72, bbox_extra_artists=figura.ax.get_default_bbox_extra_artists(),
+                    pad_inches=0)
+        return salida.getvalue().decode("utf-8")
+    finally:
+        _cerrar_figura(circuito)
+
+
+def _cerrar_figura(circuito):
+    """Libera la figura de matplotlib: el servidor dibuja un circuito por
+    petición y, sin cerrarlas, las figuras se acumulaban en memoria."""
+    figura = getattr(circuito, "fig", None)
+    if figura is not None and hasattr(figura, "getfig"):
+        plt.close(figura.getfig())
 
 
 def exportar(circuito, base=RUTA_DIAGRAMA, escala=1, escribir_archivos=True):
@@ -757,8 +769,11 @@ def exportar(circuito, base=RUTA_DIAGRAMA, escala=1, escribir_archivos=True):
 
         ruta_png = base + ".png"
         ruta_svg = base + ".svg"
-        circuito.save(ruta_png, transparent=False, dpi=300 * escala)
-        circuito.save(ruta_svg, transparent=False)
+        try:
+            circuito.save(ruta_png, transparent=False, dpi=300 * escala)
+            circuito.save(ruta_svg, transparent=False)
+        finally:
+            _cerrar_figura(circuito)
         with open(ruta_svg, encoding="utf-8") as archivo:
             return archivo.read()
     except Exception as error:

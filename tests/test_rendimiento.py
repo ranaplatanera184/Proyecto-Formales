@@ -84,10 +84,21 @@ def test_por_encima_del_limite_no_se_calcula_la_tabla(monkeypatch):
 
 
 def test_en_el_limite_la_tabla_viene_completa():
-    resultado = GestorReglas().analizar(circuito_de(LIMITE_TABLA), imprimir=False,
-                                        con_diagrama=False, registrar=False)
+    # 14 entradas y una compuerta: 2^14 filas × 15 columnas, bajo LIMITE_CELDAS.
+    entradas = ", ".join(f"e{i}" for i in range(LIMITE_TABLA))
+    resultado = GestorReglas().analizar(f"ENTRADA[{entradas}]\nXOR[{entradas}] -> y",
+                                        imprimir=False, con_diagrama=False,
+                                        registrar=False)
     assert resultado["tabla_omitida"] is None
     assert len(resultado["tabla_verdad"]["filas"]) == 2 ** LIMITE_TABLA
+
+
+def test_la_tabla_tambien_se_omite_por_celdas():
+    """Hallazgo del verificador: 14 entradas y muchas compuertas daban 9 MB."""
+    resultado = GestorReglas().analizar(circuito_de(LIMITE_TABLA), imprimir=False,
+                                        con_diagrama=False, registrar=False)
+    assert resultado["tabla_omitida"]["filas_totales"] == 2 ** LIMITE_TABLA
+    assert "celdas" in resultado["tabla_omitida"]["motivo"]
 
 
 def test_el_limite_es_configurable():

@@ -108,6 +108,7 @@ class _Contexto:
         # `_expandida` guarda el texto ya expandido de cada señal; `_cuenta` lleva
         # el número de expansiones realmente calculadas.
         self._expandida = {}
+        self._longitud = {}
         self._cuenta = 0
 
         # Motivo de haber omitido una expandida, indexado por señal: el aviso
@@ -166,11 +167,14 @@ class _Contexto:
 
         Al recortarla deja el motivo en `avisos[salida]`.
         """
-        texto = self._expandir(salida)
-        if len(texto) > LIMITE_EXPANDIDA:
-            self.avisos[salida] = AVISO_LARGA.format(n=len(texto))
+        if salida in self.entradas:
+            return salida
+        self._expandir(salida)
+        longitud = self._longitud[salida]
+        if longitud > LIMITE_EXPANDIDA:
+            self.avisos[salida] = AVISO_LARGA.format(n=longitud)
             return None
-        return texto
+        return self._expandida[salida]
 
     def _expandir(self, senal):
         """Texto expandido de `senal`, memoizado para no repetir el trabajo.
@@ -179,17 +183,21 @@ class _Contexto:
         después de sus dependencias. Así una cadena de miles de compuertas no
         agota la pila de llamadas de Python (antes cada nivel era una llamada
         recursiva).
+
+        Antes de construir el texto se calcula su longitud EXACTA a partir de
+        la de sus operandos: si supera LIMITE_EXPANDIDA, el texto no se arma
+        (queda None). Sin esto, una señal reutilizada en cada nivel
+        (OR[x, x] -> y, OR[y, y] -> z...) duplicaba el texto en cada línea y
+        30 líneas pedían gigabytes de memoria.
         """
-        if senal in self.entradas:
-            return senal
-        if senal in self._expandida:
-            return self._expandida[senal]
+        if senal in self.entradas or senal in self._longitud:
+            return
 
         pendientes = [(senal, False)]
         while pendientes:
             actual, listo = pendientes.pop()
 
-            if actual in self.entradas or actual in self._expandida:
+            if actual in self.entradas or actual in self._longitud:
                 continue
 
             compuerta = self.compuertas[actual]
@@ -198,14 +206,44 @@ class _Contexto:
                 # Primera visita: se pospone y se apilan sus dependencias.
                 pendientes.append((actual, True))
                 for entrada in compuerta["entradas"]:
-                    if entrada not in self.entradas and entrada not in self._expandida:
+                    if entrada not in self.entradas and entrada not in self._longitud:
                         pendientes.append((entrada, False))
                 continue
 
-            self._expandida[actual] = self._texto_de(compuerta)
+            longitud = self._longitud_de(compuerta)
+            self._longitud[actual] = longitud
+            self._expandida[actual] = (self._texto_de(compuerta)
+                                       if longitud <= LIMITE_EXPANDIDA else None)
             self._cuenta += 1
 
-        return self._expandida[senal]
+    # ------------------------------------------------------------------
+    # Estructura de una expresión: qué operandos llevan paréntesis
+    # ------------------------------------------------------------------
+    def _con_parentesis(self, entrada, precedencia_padre):
+        """Se parentetiza un operando compuesto cuando su operador se evalúa
+        antes de lo que la precedencia del padre ya garantiza (más débil que
+        el padre), y siempre cuando es XOR u OR: en esos dos casos el
+        paréntesis deja el orden de evaluación explícito."""
+        if entrada in self.entradas:
+            return False
+        _, precedencia_entrada, _ = self.reglas[self.compuertas[entrada]["compuerta"]]
+        return precedencia_entrada <= 2 or precedencia_entrada < precedencia_padre
+
+    def _longitud_hoja(self, senal):
+        return len(senal) if senal in self.entradas else self._longitud[senal]
+
+    def _longitud_de(self, compuerta):
+        """Longitud exacta del texto de una compuerta sin construirlo."""
+        simbolo, precedencia, negacion = self.reglas[compuerta["compuerta"]]
+        if compuerta["compuerta"] == "NOT":
+            return len(simbolo) + 2 + self._longitud_hoja(compuerta["entradas"][0])
+        entradas = compuerta["entradas"]
+        total = sum(self._longitud_hoja(e) + 2 * self._con_parentesis(e, precedencia)
+                    for e in entradas)
+        total += (len(simbolo) + 2) * (len(entradas) - 1)
+        if negacion:
+            total += len(negacion) + 2
+        return total
 
     def _texto_de(self, compuerta):
         """Texto expandido de una compuerta cuyas entradas ya están resueltas."""
@@ -216,7 +254,11 @@ class _Contexto:
             # cualquier expresión.
             return f"{simbolo}({self._texto(compuerta['entradas'][0])})"
 
-        texto = self._operandos(compuerta, precedencia)
+        partes = []
+        for entrada in compuerta["entradas"]:
+            texto = self._texto(entrada)
+            partes.append(f"({texto})" if self._con_parentesis(entrada, precedencia) else texto)
+        texto = f" {simbolo} ".join(partes)
         if negacion:
             texto = f"{negacion}({texto})"
         return texto
@@ -224,27 +266,3 @@ class _Contexto:
     def _texto(self, senal):
         """Texto ya resuelto de una señal (las entradas son su propio nombre)."""
         return senal if senal in self.entradas else self._expandida[senal]
-
-    def _operandos(self, compuerta, precedencia_padre):
-        """Los operandos unidos con su símbolo, parentetizados si hace falta."""
-        simbolo = self.reglas[compuerta["compuerta"]][0]
-        partes = []
-
-        for entrada in compuerta["entradas"]:
-            if entrada in self.entradas:
-                partes.append(entrada)
-                continue
-
-            texto = self._texto(entrada)
-            _, precedencia_entrada, _ = self.reglas[self.compuertas[entrada]["compuerta"]]
-
-            # Se parentetiza un operando compuesto cuando su operador se evalúa
-            # antes de lo que la precedencia del padre ya garantiza (más débil
-            # que el padre), y siempre cuando es XOR u OR: en esos dos casos el
-            # paréntesis deja el orden de evaluación explícito.
-            if precedencia_entrada <= 2 or precedencia_entrada < precedencia_padre:
-                partes.append(f"({texto})")
-            else:
-                partes.append(texto)
-
-        return f" {simbolo} ".join(partes)

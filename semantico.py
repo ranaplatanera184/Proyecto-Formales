@@ -108,6 +108,9 @@ def _camino_de_ciclo(inicio, componente, sucesores):
     return [inicio]
 
 
+# Longitud máxima del texto del campo legado "expresiones".
+LIMITE_EXPRESION_LEGADA = 100_000
+
 # Compuertas negadas que no son asociativas con N entradas.
 NO_ASOCIATIVAS = {"NAND", "NOR", "XNOR"}
 
@@ -572,8 +575,12 @@ class AnalizadorSemantico:
     # Expresiones booleanas
     # ------------------------------------------------------------------
     def expresiones_booleanas(self):
-        """Expresión booleana equivalente de cada señal de salida que no es
-        utilizada como entrada de otra compuerta."""
+        """Expresión booleana equivalente de cada salida del circuito.
+
+        Se calcula primero la longitud exacta de cada texto y solo se arma si
+        no supera LIMITE_EXPRESION_LEGADA: con señales reutilizadas en cada
+        nivel el texto se duplica por línea y podía agotar la memoria.
+        """
         # Hojas de la expresión: entradas y constantes.
         hojas = set(self.entradas) | set(CONSTANTES)
 
@@ -583,28 +590,48 @@ class AnalizadorSemantico:
         # Las expresiones se construyen en orden topológico (iterativo), no con
         # recursión: una cadena de miles de compuertas agotaría la pila.
         textos = {}
+        longitudes = {}
+
+        def largo(entrada):
+            return len(entrada) if entrada in hojas else longitudes[entrada]
+
+        def texto(entrada):
+            return entrada if entrada in hojas else textos[entrada]
+
         for compuerta in self.orden_topologico():
             senal = compuerta["salida"]
-
             nombre = compuerta["compuerta"]
+            entradas = compuerta["entradas"]
+
             if nombre == "NOT":
-                entrada = compuerta["entradas"][0]
-                textos[senal] = f"NOT({entrada if entrada in hojas else textos[entrada]})"
-            elif nombre in NO_ASOCIATIVAS and len(compuerta["entradas"]) > 2:
+                forma = "not"
+                longitud = 5 + largo(entradas[0])
+            elif nombre in NO_ASOCIATIVAS and len(entradas) > 2:
                 # "a NAND b NAND c" es ambiguo: NAND no es asociativa y
                 # (a NAND b) NAND c ≠ NAND[a, b, c]. Con 3 o más entradas se
                 # usa notación de función: NAND(a, b, c).
-                operandos = [entrada if entrada in hojas else textos[entrada]
-                             for entrada in compuerta["entradas"]]
-                textos[senal] = f"{nombre}({', '.join(operandos)})"
+                forma = "funcion"
+                longitud = len(nombre) + 2 + sum(map(largo, entradas)) + 2 * (len(entradas) - 1)
             else:
-                operandos = [
-                    entrada if entrada in hojas else f"({textos[entrada]})"
-                    for entrada in compuerta["entradas"]
-                ]
-                textos[senal] = f" {nombre} ".join(operandos)
+                forma = "infijo"
+                longitud = (sum(largo(e) + (0 if e in hojas else 2) for e in entradas)
+                            + (len(nombre) + 2) * (len(entradas) - 1))
+            longitudes[senal] = longitud
 
-        return [(salida, textos[salida]) for salida in salidas_finales]
+            if longitud > LIMITE_EXPRESION_LEGADA or any(
+                    e not in hojas and textos[e] is None for e in entradas):
+                textos[senal] = None
+            elif forma == "not":
+                textos[senal] = f"NOT({texto(entradas[0])})"
+            elif forma == "funcion":
+                textos[senal] = f"{nombre}({', '.join(map(texto, entradas))})"
+            else:
+                textos[senal] = f" {nombre} ".join(
+                    e if e in hojas else f"({textos[e]})" for e in entradas)
+
+        return [(salida, textos[salida] if textos[salida] is not None else
+                 f"(expresión demasiado larga: {longitudes[salida]} caracteres)")
+                for salida in salidas_finales]
 
 
 # ---------------------------------------------------------------------------
