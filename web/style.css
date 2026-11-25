@@ -1233,11 +1233,6 @@ tbody tr:last-child td {
   background: rgba(255, 255, 255, .7);
 }
 
-.lista-pasos li.activo {
-  border-color: rgba(75, 128, 88, .44);
-  background: #edf6e9;
-  box-shadow: 0 0 0 3px rgba(99, 155, 102, .1);
-}
 
 .menu {
   position: relative;
@@ -1899,14 +1894,12 @@ tbody tr:last-child td {
 }
 
 :root[data-tema="oscuro"] tbody tr:nth-child(even),
-:root[data-tema="oscuro"] .lista-pasos li,
 :root[data-tema="oscuro"] .historial > * {
   color: var(--texto);
   background: #1b2a22;
 }
 
-:root[data-tema="oscuro"] tbody tr:hover,
-:root[data-tema="oscuro"] .lista-pasos li.activo {
+:root[data-tema="oscuro"] tbody tr:hover {
   background: #2a4032;
 }
 
@@ -1951,6 +1944,314 @@ tbody tr:last-child td {
 
 :root[data-tema="oscuro"] .pestana {
   color: #b5c3b6;
+}
+
+/* ------------------------------------------------------------------------
+   Tablas con desplazamiento interno (la página no crece con las filas)
+   ------------------------------------------------------------------------ */
+#panel-tokens .tabla-scroll,
+#panel-simbolos .tabla-scroll,
+#tablaScroll {
+  max-height: min(62vh, 560px);
+}
+
+.tabla-corta {
+  max-height: 340px;
+}
+
+td.uno {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+td.cero {
+  color: var(--tenue);
+}
+
+.filtros label[hidden] {
+  display: none;
+}
+
+.panel-contenido h3 {
+  color: var(--texto);
+}
+
+/* ------------------------------------------------------------------------
+   Árbol sintáctico plegable
+   ------------------------------------------------------------------------ */
+.arbol {
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid rgba(54, 91, 61, .11);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.arbol ul {
+  margin: 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.arbol ul.arbol-raiz {
+  padding-left: 0;
+}
+
+.arbol li {
+  position: relative;
+  margin: 2px 0;
+}
+
+.arbol ul ul li::before {
+  position: absolute;
+  top: 15px;
+  left: -13px;
+  width: 11px;
+  border-top: 1px solid var(--panel-borde);
+  content: "";
+}
+
+.arbol ul ul {
+  border-left: 1px solid var(--panel-borde);
+  margin-left: 7px;
+}
+
+.arbol summary {
+  cursor: pointer;
+  list-style-position: outside;
+}
+
+.arbol summary::marker {
+  color: var(--tenue);
+}
+
+.nodo-arbol {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 9px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  font-size: .84rem;
+}
+
+.nodo-arbol:hover:not(:disabled) {
+  border-color: var(--panel-borde);
+  background: var(--menta);
+  box-shadow: none;
+  transform: none;
+}
+
+.nodo-tipo {
+  color: var(--tenue);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.nodo-valor {
+  color: var(--texto);
+  font-weight: 650;
+}
+
+.nodo-compuerta .nodo-valor {
+  color: var(--acento);
+}
+
+.nodo-posicion {
+  color: var(--tenue);
+  font-size: .72rem;
+}
+
+/* ------------------------------------------------------------------------
+   Pestaña 5: código intermedio y optimización
+   ------------------------------------------------------------------------ */
+#contenidoIntermedio {
+  display: grid;
+  gap: 14px;
+}
+
+.columnas-intermedio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 14px;
+}
+
+.bloque-intermedio h3 {
+  margin-bottom: 8px;
+}
+
+.bloque-intermedio td {
+  white-space: normal;
+}
+
+/* ------------------------------------------------------------------------
+   Paso a paso: entradas 0/1 y paso actual
+   ------------------------------------------------------------------------ */
+.entrada-simulacion {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 70px;
+  justify-content: space-between;
+}
+
+.entrada-simulacion .valor-bit {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--tenue);
+  background: rgba(54, 91, 61, .08);
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.entrada-simulacion[aria-pressed="true"] {
+  border-color: rgba(75, 128, 88, .45);
+  background: var(--menta);
+}
+
+.entrada-simulacion[aria-pressed="true"] .valor-bit {
+  color: var(--acento-texto);
+  background: var(--acento);
+}
+
+.lista-pasos li {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.paso-item {
+  width: 100%;
+  border-color: rgba(54, 91, 61, .1);
+  background: rgba(255, 255, 255, .7);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.paso-item[aria-current="step"] {
+  border-color: var(--acento);
+  background: var(--menta);
+  box-shadow: inset 3px 0 0 var(--acento);
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------------
+   Historial: tarjetas legibles y sin desborde
+   ------------------------------------------------------------------------ */
+.tarjeta-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: .78rem;
+}
+
+.estado-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--acento-texto);
+  background: var(--ok);
+  font-size: .68rem;
+  font-weight: 750;
+  letter-spacing: .05em;
+}
+
+.estado-chip.error {
+  background: var(--error);
+}
+
+.tarjeta .fecha,
+.tarjeta .meta {
+  color: var(--tenue);
+}
+
+.primera-linea {
+  overflow: hidden;
+  margin: 10px 0;
+  color: var(--texto);
+  font-size: .85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tarjeta-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tarjeta-acciones .borrar {
+  color: var(--error);
+}
+
+/* ------------------------------------------------------------------------
+   Foco visible en elementos interactivos propios
+   ------------------------------------------------------------------------ */
+.diagnostico:focus-visible,
+.nodo-arbol:focus-visible,
+summary:focus-visible {
+  outline: 3px solid rgba(89, 143, 98, .45);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------------
+   Tema oscuro: contraste de las piezas nuevas
+   ------------------------------------------------------------------------ */
+:root[data-tema="oscuro"] .pestana[aria-selected="true"] .num {
+  color: #102015;
+  background: var(--acento);
+}
+
+:root[data-tema="oscuro"] .pestana:hover:not(:disabled) {
+  color: #e4eee2;
+  background: rgba(255, 255, 255, .08);
+}
+
+:root[data-tema="oscuro"] .badge {
+  color: #d0dfd0;
+  background: rgba(255, 255, 255, .1);
+}
+
+:root[data-tema="oscuro"] .badge.con-errores {
+  color: #2a0d0b;
+  background: var(--error);
+}
+
+:root[data-tema="oscuro"] .badge.con-advertencias {
+  color: #2b2006;
+  background: #e2c06a;
+}
+
+:root[data-tema="oscuro"] .arbol,
+:root[data-tema="oscuro"] .tabla-scroll,
+:root[data-tema="oscuro"] .paso-item {
+  border-color: var(--panel-borde);
+  background: #16231c;
+}
+
+:root[data-tema="oscuro"] .paso-item[aria-current="step"],
+:root[data-tema="oscuro"] .entrada-simulacion[aria-pressed="true"] {
+  border-color: var(--acento);
+  background: #2a4032;
+}
+
+:root[data-tema="oscuro"] .chip-posicion {
+  border-color: var(--panel-borde);
+  background: #1b2a22;
+}
+
+:root[data-tema="oscuro"] .subpestana[aria-selected="true"],
+:root[data-tema="oscuro"] .diagnostico-sugerencia {
+  color: #a7d0a6;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -175,11 +175,12 @@
               </div>
               <div class="acciones">
                 <div class="menu" id="menuExportar">
-                  <button id="botonExportar" class="primario" disabled>Exportar ▾</button>
+                  <button id="botonExportar" class="primario" disabled aria-haspopup="true" aria-expanded="false" aria-controls="listaExportar">Exportar ▾</button>
                   <ul id="listaExportar" class="submenu oculto">
                     <li><button data-exportar="svg">Diagrama SVG</button></li>
                     <li><button data-exportar="csv">Tabla de verdad (CSV)</button></li>
                     <li><button data-exportar="json">Resultado completo (JSON)</button></li>
+                    <li><button data-exportar="verilog">Módulo Verilog (.v)</button></li>
                   </ul>
                 </div>
                 <button id="descargarSvg" disabled>Descargar SVG</button>
@@ -190,7 +191,7 @@
             <button class="pestana activa" id="tab-tokens" data-panel="tokens" role="tab" aria-selected="true" aria-controls="panel-tokens"><span class="num">1</span>Tokens</button>
             <button class="pestana" id="tab-arbol" data-panel="arbol" role="tab" aria-selected="false" aria-controls="panel-arbol" tabindex="-1"><span class="num">2</span>Árbol</button>
             <button class="pestana" id="tab-simbolos" data-panel="simbolos" role="tab" aria-selected="false" aria-controls="panel-simbolos" tabindex="-1"><span class="num">3</span>Símbolos</button>
-            <button class="pestana" id="tab-errores" data-panel="errores" role="tab" aria-selected="false" aria-controls="panel-errores" tabindex="-1"><span class="num">4</span>Diagnósticos <span class="badge" id="badgeErrores" aria-label="sin diagnósticos">✔</span></button>
+            <button class="pestana" id="tab-errores" data-panel="errores" role="tab" aria-selected="false" aria-controls="panel-errores" tabindex="-1"><span class="num">4</span>Diagnósticos <span class="badge" id="badgeErrores" aria-hidden="true">✔</span><span class="sr-only" id="textoBadge">sin diagnósticos</span></button>
             <button class="pestana" id="tab-intermedio" data-panel="intermedio" role="tab" aria-selected="false" aria-controls="panel-intermedio" tabindex="-1" title="Código intermedio y optimización"><span class="num">5</span>Intermedio</button>
             <button class="pestana" id="tab-resultados" data-panel="resultados" role="tab" aria-selected="false" aria-controls="panel-resultados" tabindex="-1"><span class="num">6</span>Resultados</button>
             <button class="pestana" id="tab-pasos" data-panel="pasos" role="tab" aria-selected="false" aria-controls="panel-pasos" tabindex="-1"><span class="num">7</span>Paso a paso</button>
@@ -443,13 +444,13 @@
   </main>
 
   <!-- Modal: diagrama a pantalla completa -->
-  <div id="modalDiagrama" class="modal oculto">
+  <div id="modalDiagrama" class="modal oculto" role="dialog" aria-modal="true" aria-label="Diagrama a pantalla completa">
     <div class="modal-barra">
       <span>Diagrama</span>
       <div class="acciones">
-        <button id="modalMenos">−</button>
+        <button id="modalMenos" aria-label="Alejar">−</button>
         <span id="modalZoomValor" class="mono">100%</span>
-        <button id="modalMas">+</button>
+        <button id="modalMas" aria-label="Acercar">+</button>
         <button id="modalAjustar">Ajustar</button>
         <button id="modalCerrar" class="primario">Cerrar (Esc)</button>
       </div>
