@@ -1,0 +1,4 @@
+# Multiplexor 2:1: si sel = 0 la salida es a; si sel = 1, b
+ENTRADA[a, b, sel]
+SALIDA[y]
+OR[AND[a, NOT[sel]], AND[b, sel]] -> y

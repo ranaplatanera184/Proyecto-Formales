@@ -1,0 +1,5 @@
+# Tres errores de sintaxis: el compilador los reporta todos de una pasada
+ENTRADA[a, b, c]
+AND[a b] -> x
+OR[x, c] y
+NOT[y -> z

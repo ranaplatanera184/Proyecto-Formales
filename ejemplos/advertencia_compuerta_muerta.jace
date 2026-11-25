@@ -1,0 +1,5 @@
+# Compila, pero avisa: la compuerta OR no llega a ninguna salida declarada
+ENTRADA[a, b]
+SALIDA[y]
+AND[a, b] -> y
+OR[a, b] -> muerta

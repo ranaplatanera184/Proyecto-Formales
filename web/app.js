@@ -11,14 +11,6 @@
 
 const $ = (selector) => document.querySelector(selector);
 
-const EJEMPLO = [
-  "ENTRADA[a, b, c]",
-  "AND[a, b] -> x1",
-  "OR[x1, c] -> x2",
-  "XOR[x2, a] -> x3",
-  "NAND[x3, b] -> salida"
-].join("\n");
-
 const COLOR_INICIAL = "#FFFFFF";
 const CLAVE_FONDO = "jace.fondo";
 const FILAS_POR_BLOQUE = 32;      // la tabla de verdad se dibuja de 32 en 32
@@ -129,8 +121,7 @@ function aplicarTema(color) {
   document.documentElement.dataset.tema = oscuro ? "oscuro" : "claro";
 
   $("#muestraFondo").style.background = color;
-  $("#textoFondo").textContent = color;
-  $("#colorRapido").value = color.toLowerCase();
+  $("#botonFondo").title = `Fondo: ${color}`;
   $("#colorLibre").value = color.toLowerCase();
   $("#colorTexto").value = color;
 }
@@ -152,7 +143,6 @@ async function cargarFondo() {
 }
 
 async function fijarFondo(color, opciones = {}) {
-  const destino = opciones.destino || "#/";
   const respuesta = await fetch("/background", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -171,7 +161,6 @@ async function fijarFondo(color, opciones = {}) {
   aplicarTema(estado.fondo);
   if (opciones.guardar !== false) localStorage.setItem(CLAVE_FONDO, estado.fondo);
   marcarPresetActivo();
-  window.location.hash = destino;
   return true;
 }
 
@@ -184,7 +173,9 @@ function dibujarPresets(fondos) {
     boton.dataset.color = normalizarColor(item.color);
     boton.innerHTML = `<span class="muestra"></span><span>${item.nombre}</span>`;
     boton.querySelector(".muestra").style.background = item.color;
-    boton.addEventListener("click", () => fijarFondo(boton.dataset.color));
+    boton.addEventListener("click", async () => {
+      if (await fijarFondo(boton.dataset.color)) cerrarPopoverFondo();
+    });
     contenedor.appendChild(boton);
   }
   marcarPresetActivo();
@@ -202,16 +193,19 @@ function marcarPresetActivo() {
 function vistaActual() {
   const hash = window.location.hash;
   if (hash.startsWith("#/historial")) return "historial";
-  if (hash.startsWith("#/background")) return "background";
   return "analisis";
 }
 
 function mostrarVista() {
+  // La antigua ruta #/background abre el selector de fondo de la barra.
+  if (window.location.hash.startsWith("#/background")) {
+    history.replaceState(null, "", "#/");
+    abrirPopoverFondo();
+  }
   const vista = vistaActual();
   if (vista !== "analisis") detenerReproduccion();
   $("#vista-analisis").classList.toggle("oculto", vista !== "analisis");
   $("#vista-historial").classList.toggle("oculto", vista !== "historial");
-  $("#vista-background").classList.toggle("oculto", vista !== "background");
 
   document.querySelectorAll(".barra nav a").forEach((enlace) => {
     enlace.classList.toggle("activa", enlace.dataset.vista === vista);
@@ -363,7 +357,10 @@ function mostrarResultado(datos, segundos) {
 
   const hayDiagrama = Boolean(datos.diagrama_svg);
   $("#botonExportar").disabled = !datos.exito;
-  $("#descargarSvg").disabled = !hayDiagrama;
+  document.querySelector('[data-exportar="svg"]').disabled = !hayDiagrama;
+  if (datos.exito && datos.diagrama_omitido) {
+    $("#diagramaVacio").textContent = `${datos.diagrama_omitido.motivo}.`;
+  }
 
   if (datos.exito) {
     avisar(`Análisis exitoso en ${segundos.toFixed(1)} s.`, false);
@@ -1435,6 +1432,7 @@ function pintarDiagnosticos(diagnosticos, opciones = {}) {
   $("#sinDiagnosticos").classList.toggle("oculto", diagnosticos.length > 0);
 
   actualizarPestanaErrores(errores.length, advertencias.length);
+  actualizarMargen();
   // Con validación automática solo se muestran; el resultado anterior se conserva.
   if (errores.length > 0 && !opciones.automatico) activarPestana("errores");
 }
@@ -1615,17 +1613,19 @@ function toggleMenuExportar() {
 function conectarEventos() {
   // Editor
   $("#analizar").addEventListener("click", analizar);
-  $("#ejemplo").addEventListener("click", () => {
-    $("#codigo").value = EJEMPLO;
-    avisar("Ejemplo cargado. Pulsa «Analizar».", false);
+  $("#botonEjemplos").addEventListener("click", (evento) => {
+    evento.stopPropagation();
+    alternarMenu("#listaEjemplos", "#botonEjemplos");
   });
   $("#codigo").addEventListener("input", () => {
     programarValidacion();
+    actualizarMargen();
     // El resultado mostrado ya no corresponde al texto: se avisa.
     if (estado.resultado && $("#codigo").value !== estado.codigoAnalizado) {
       avisar("Hay cambios sin analizar (Ctrl+Enter).", false);
     }
   });
+  $("#codigo").addEventListener("scroll", sincronizarMargen);
   $("#codigo").addEventListener("keydown", (evento) => {
     if (evento.key === "Enter" && (evento.ctrlKey || evento.metaKey)) {
       evento.preventDefault();
@@ -1725,9 +1725,10 @@ function conectarEventos() {
     const boton = evento.target.closest("[data-exportar]");
     if (boton) exportar(boton.dataset.exportar);
   });
-  $("#descargarSvg").addEventListener("click", () => exportar("svg"));
   document.addEventListener("click", (evento) => {
     if (!evento.target.closest("#menuExportar")) cerrarMenuExportar();
+    if (!evento.target.closest("#menuEjemplos")) cerrarMenu("#listaEjemplos", "#botonEjemplos");
+    if (!evento.target.closest(".fondo-control")) cerrarPopoverFondo();
   });
 
   // Historial
@@ -1743,8 +1744,10 @@ function conectarEventos() {
     }
     fijarFondo(color);
   });
-  $("#colorRapido").addEventListener("change", (evento) => {
-    fijarFondo(normalizarColor(evento.target.value));
+  $("#botonFondo").addEventListener("click", (evento) => {
+    evento.stopPropagation();
+    if ($("#popoverFondo").classList.contains("oculto")) abrirPopoverFondo();
+    else cerrarPopoverFondo();
   });
   $("#colorLibre").addEventListener("input", (evento) => {
     $("#colorTexto").value = evento.target.value.toUpperCase();
@@ -1756,14 +1759,122 @@ function conectarEventos() {
     if (estado.autoAjustar) ajustarDiagrama();
   });
   document.addEventListener("keydown", (evento) => {
-    if (evento.key === "Escape") cerrarPantallaCompleta();
+    if (evento.key !== "Escape") return;
+    cerrarPantallaCompleta();
+    cerrarMenuExportar();
+    cerrarMenu("#listaEjemplos", "#botonEjemplos");
+    if (!$("#popoverFondo").classList.contains("oculto")) {
+      cerrarPopoverFondo();
+      $("#botonFondo").focus();
+    }
   });
+}
+
+/* ======================================================================== */
+/* 14. Fondo (popover), galería de ejemplos y margen del editor              */
+/* ======================================================================== */
+function abrirPopoverFondo() {
+  $("#popoverFondo").classList.remove("oculto");
+  $("#botonFondo").setAttribute("aria-expanded", "true");
+  marcarPresetActivo();
+  const activo = document.querySelector(".preset.activo") || document.querySelector(".preset");
+  if (activo) activo.focus();
+}
+
+function cerrarPopoverFondo() {
+  $("#popoverFondo").classList.add("oculto");
+  $("#botonFondo").setAttribute("aria-expanded", "false");
+}
+
+function alternarMenu(lista, boton) {
+  const abierto = $(lista).classList.toggle("oculto") === false;
+  $(boton).setAttribute("aria-expanded", String(abierto));
+}
+
+function cerrarMenu(lista, boton) {
+  $(lista).classList.add("oculto");
+  $(boton).setAttribute("aria-expanded", "false");
+}
+
+async function cargarEjemplos() {
+  const lista = $("#listaEjemplos");
+  try {
+    const { ejemplos } = await (await fetch("/ejemplos")).json();
+    const grupos = new Map();
+    for (const ejemplo of ejemplos) {
+      if (!grupos.has(ejemplo.grupo)) grupos.set(ejemplo.grupo, []);
+      grupos.get(ejemplo.grupo).push(ejemplo);
+    }
+    lista.replaceChildren();
+    for (const [grupo, elementos] of grupos) {
+      const titulo = document.createElement("p");
+      titulo.className = "submenu-grupo";
+      titulo.textContent = grupo;
+      lista.appendChild(titulo);
+      for (const ejemplo of elementos) {
+        const boton = document.createElement("button");
+        boton.type = "button";
+        const nombre = document.createElement("span");
+        nombre.textContent = ejemplo.titulo;
+        const detalle = document.createElement("small");
+        detalle.textContent = ejemplo.descripcion;
+        boton.append(nombre, detalle);
+        boton.addEventListener("click", () => {
+          $("#codigo").value = ejemplo.codigo;
+          cerrarMenu("#listaEjemplos", "#botonEjemplos");
+          avisar(`Ejemplo «${ejemplo.titulo}» cargado. Pulsa «Analizar».`, false);
+          actualizarMargen();
+          programarValidacion();
+          $("#codigo").focus();
+        });
+        lista.appendChild(boton);
+      }
+    }
+  } catch (error) {
+    lista.textContent = "No se pudieron cargar los ejemplos.";
+  }
+}
+
+// Números de línea en un margen sincronizado con el textarea, con una marca
+// en las líneas que tienen errores o advertencias.
+function actualizarMargen() {
+  const margen = $("#margen");
+  const total = $("#codigo").value.split("\n").length;
+  const marcas = new Map();
+  for (const d of estado.diagnosticos || []) {
+    if (!d.linea) continue;
+    if (d.severidad === "error" || !marcas.has(d.linea)) marcas.set(d.linea, d);
+  }
+  const fragmento = document.createDocumentFragment();
+  for (let linea = 1; linea <= total; linea++) {
+    const numero = document.createElement("div");
+    numero.textContent = linea;
+    const marca = marcas.get(linea);
+    if (marca) {
+      numero.className = marca.severidad === "error" ? "marca-error" : "marca-advertencia";
+      numero.title = marca.mensaje;
+    }
+    fragmento.appendChild(numero);
+  }
+  // Relleno para que el margen pueda desplazarse tanto como el textarea.
+  const relleno = document.createElement("div");
+  relleno.className = "margen-relleno";
+  fragmento.appendChild(relleno);
+  margen.replaceChildren(fragmento);
+  sincronizarMargen();
+}
+
+function sincronizarMargen() {
+  $("#margen").scrollTop = $("#codigo").scrollTop;
 }
 
 function iniciar() {
   conectarEventos();
   mostrarVista();
   cargarFondo();
+  cargarEjemplos();
+  actualizarMargen();
+  new ResizeObserver(sincronizarMargen).observe($("#codigo"));
   actualizarPestanaErrores(0);
   activarSubpestana(estado.subActiva);
   pintarExpresiones();

@@ -7,14 +7,18 @@
 
 import os
 
-# Ruta de la carpeta web (interfaz) y de las reglas del lenguaje.
+# Carpetas de recursos: interfaz web, galería de ejemplos y los .jace de
+# pruebas/ que la galería reutiliza.
 web = os.path.abspath('web')
+ejemplos = os.path.abspath('ejemplos')
+pruebas = os.path.abspath('pruebas')
 
 a = Analysis(
     ['jace_app.py'],
     pathex=[],
     binaries=[],
-    datas=[('reglas.json', '.'), (web, 'web')],
+    datas=[('reglas.json', '.'), (web, 'web'), (ejemplos, 'ejemplos'),
+           (pruebas, 'pruebas')],
     # schemdraw importa el backend de SVG de matplotlib de forma diferida al
     # guardar el diagrama: sin esto el SVG sale vacío dentro del ejecutable.
     hiddenimports=['matplotlib.backends.backend_svg',

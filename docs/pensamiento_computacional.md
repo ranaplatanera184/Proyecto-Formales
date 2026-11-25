@@ -308,7 +308,7 @@ El proyecto separa cada responsabilidad en un archivo propio. La siguiente tabla
 
 Esta división no es arbitraria: sigue el principio de responsabilidad única. El módulo de expresiones no sabe dibujar; el de dibujo no sabe evaluar; el de almacenamiento no sabe analizar. Cada uno depende solo de lo que necesita.
 
-Existe además `diagrama.py`, una variante antigua de dibujo en SVG que no forma parte del flujo actual: ningún módulo la importa y no está versionada en el repositorio. El dibujo vigente es `schematico.py`. Se menciona aquí para que la lectura del proyecto no confunda ese archivo heredado con un componente activo.
+El antiguo `diagrama.py` (dibujo SVG hecho a mano) se eliminó: ningún módulo lo importaba. El dibujo vigente es `schematico.py`.
 
 ### 6.4 Descomposición por funciones pequeñas
 

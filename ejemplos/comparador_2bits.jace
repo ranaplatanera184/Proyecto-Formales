@@ -1,0 +1,8 @@
+# Comparador de dos números de 2 bits: A = a1 a0, B = b1 b0
+ENTRADA[a1, a0, b1, b0]
+SALIDA[igual, mayor, menor]
+XNOR[a1, b1] -> eq1
+XNOR[a0, b0] -> eq0
+AND[eq1, eq0] -> igual
+OR[AND[a1, NOT[b1]], AND[eq1, a0, NOT[b0]]] -> mayor
+NOR[igual, mayor] -> menor

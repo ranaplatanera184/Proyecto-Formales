@@ -1,0 +1,4 @@
+# Constantes y redundancias que el optimizador simplifica (pestaña 5)
+ENTRADA[a, b, c]
+SALIDA[y]
+OR[AND[a, 1], AND[b, 0], XOR[c, c], NOT[NOT[c]]] -> y

@@ -1,0 +1,4 @@
+# Compuertas anidadas: cada compuerta interna se convierte en una señal
+# temporal (_t1, _t2...) que se ve en el código intermedio y en el paso a paso
+ENTRADA[a, b, c]
+XOR[OR[AND[a, b], c], NAND[a, c]] -> y

@@ -50,6 +50,10 @@ def main():
                    "--onedir", "--name", "jace-app",
                    "--add-data", "reglas.json:.",
                    "--add-data", "web:web",
+                   "--add-data", "ejemplos:ejemplos",
+                   "--add-data", "pruebas:pruebas",
+                   "--hidden-import", "matplotlib.backends.backend_svg",
+                   "--hidden-import", "matplotlib.backends.backend_agg",
                    ENTRADA]
     else:
         if not os.path.isfile(SPEC):

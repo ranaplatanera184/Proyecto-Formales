@@ -9,6 +9,7 @@
 # No depende de la consola (imprimir=False) y no escribe archivos en el disco.
 # ============================================================================
 
+import json
 import logging
 import os
 import sys
@@ -149,8 +150,8 @@ def inicio():
         "version": VERSION,
         "descripcion": "Compilador de circuitos lógicos digitales",
         "estado": "En desarrollo",
-        "rutas": ["/info", "/analizar", "/validar", "/tabla", "/historial",
-                  "/background"],
+        "rutas": ["/info", "/analizar", "/validar", "/tabla", "/ejemplos",
+                  "/historial", "/background"],
         "limite_tabla": LIMITE_TABLA,
     }
 
@@ -247,6 +248,24 @@ def tabla_por_bloques(request: TablaRequest):
 
     except Exception as error:
         return respuesta_error_interno(error)
+
+
+@app.get("/ejemplos")
+def obtener_ejemplos():
+    """Galería de ejemplos: válidos y con errores de cada fase.
+
+    El catálogo (ejemplos/catalogo.json) apunta a archivos de ejemplos/ y
+    reutiliza los de pruebas/ cuando sirven. Se leen del disco (o del
+    ejecutable empaquetado), así que la web no necesita red.
+    """
+    with open(ruta_recurso("ejemplos", "catalogo.json"), encoding="utf-8") as archivo:
+        catalogo = json.load(archivo)
+    ejemplos = []
+    for entrada in catalogo:
+        with open(ruta_recurso(*entrada["archivo"].split("/")), encoding="utf-8") as archivo:
+            codigo = archivo.read()
+        ejemplos.append({**entrada, "codigo": codigo.rstrip() + "\n"})
+    return {"ejemplos": ejemplos}
 
 
 @app.get("/historial")

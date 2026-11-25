@@ -396,8 +396,10 @@ def test_analizar_sin_registrar_no_llena_el_historial():
 def test_interfaz_tiene_navegacion_y_pestanas():
     pagina = cliente().get("/").text
 
+    # Fase 4.5: el fondo se controla desde un botón con popover (ya no hay
+    # enlace «Fondo» en la navegación ni vista #/background).
     for pieza in ['data-vista="analisis"', 'data-vista="historial"',
-                  'data-vista="background"', 'id="botonExportar"',
+                  'id="botonFondo"', 'id="popoverFondo"', 'id="botonExportar"',
                   'id="menuExportar"', 'data-exportar="svg"',
                   'data-exportar="csv"', 'data-exportar="json"',
                   'id="visor"', 'id="pestanas"', 'data-sub="tabla"',

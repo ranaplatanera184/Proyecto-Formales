@@ -1,0 +1,8 @@
+# Sumador completo de 1 bit: suma = a ⊕ b ⊕ cin, cout = acarreo de salida
+ENTRADA[a, b, cin]
+SALIDA[suma, cout]
+XOR[a, b] -> p
+XOR[p, cin] -> suma
+AND[a, b] -> g
+AND[p, cin] -> t
+OR[g, t] -> cout

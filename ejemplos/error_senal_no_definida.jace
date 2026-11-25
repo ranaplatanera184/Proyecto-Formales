@@ -1,0 +1,4 @@
+# Señal mal escrita: el compilador sugiere el nombre más parecido
+ENTRADA[a, b]
+XOR[a, b] -> suma
+NOT[sumaa] -> resto

@@ -287,43 +287,6 @@ kbd {
   stroke-linejoin: round;
 }
 
-.estado {
-  display: flex;
-  min-width: max-content;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 9px;
-  border: 1px solid rgba(60, 87, 63, .11);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, .58);
-}
-
-.estado-etiqueta {
-  color: var(--tenue);
-  font-size: .72rem;
-}
-
-.estado .muestra {
-  width: 17px;
-  height: 17px;
-  border: 1px solid rgba(37, 58, 39, .18);
-  border-radius: 50%;
-}
-
-.estado input[type="color"] {
-  width: 28px;
-  height: 27px;
-  min-height: 0;
-  padding: 2px;
-  border: 0;
-  background: transparent;
-}
-
-.estado .mono {
-  color: var(--tenue);
-  font-size: .7rem;
-}
-
 main {
   width: min(100%, var(--ancho-pagina));
   margin: 0 auto;
@@ -434,36 +397,6 @@ main {
   font-size: clamp(.98rem, 1.3vw, 1.1rem);
 }
 
-.hero-fases {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 11px;
-  margin-top: 25px;
-  color: #566a58;
-  font-size: .82rem;
-  font-weight: 650;
-}
-
-.hero-fases span:not(.hero-separador) {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.hero-fases i {
-  color: #85a987;
-  font-size: .71rem;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.hero-separador {
-  width: 18px;
-  height: 1px;
-  background: rgba(91, 126, 91, .35);
-}
-
 .hero-visual {
   position: absolute;
   z-index: 0;
@@ -478,31 +411,6 @@ main {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.visual-nota {
-  position: absolute;
-  z-index: 2;
-  right: 22px;
-  bottom: 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 11px;
-  border: 1px solid rgba(255, 255, 255, .85);
-  border-radius: 999px;
-  color: #5b7460;
-  background: rgba(255, 255, 255, .77);
-  box-shadow: 0 5px 13px rgba(48, 72, 50, .08);
-  font-size: .73rem;
-  font-weight: 650;
-}
-
-.visual-nota span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #75a77b;
 }
 
 .workspace-grid {
@@ -1305,31 +1213,7 @@ tbody tr:last-child td {
     linear-gradient(115deg, #f8f6e9, #e8f1e4 60%, #e4f0ed);
 }
 
-.page-banner-fondo {
-  background:
-    radial-gradient(circle at 85% 40%, rgba(255, 255, 255, .76), transparent 18rem),
-    linear-gradient(115deg, #f8f7eb, #e9f1e4 55%, #e2f0f2);
-}
-
-.fondo-ornamento {
-  position: absolute;
-  top: 50%;
-  right: clamp(35px, 11vw, 150px);
-  width: 130px;
-  height: 130px;
-  border: 1px solid rgba(83, 131, 87, .3);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at center, rgba(111, 165, 111, .42) 0 5px, transparent 6px),
-    linear-gradient(90deg, transparent 49.5%, rgba(83, 131, 87, .24) 50%, transparent 50.5%),
-    linear-gradient(0deg, transparent 49.5%, rgba(83, 131, 87, .24) 50%, transparent 50.5%),
-    radial-gradient(circle, transparent 48%, rgba(83, 131, 87, .2) 49%, transparent 50%);
-  opacity: .8;
-  transform: translateY(-50%);
-}
-
-#vista-historial,
-#vista-background {
+#vista-historial {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -1421,21 +1305,6 @@ tbody tr:last-child td {
   width: 135px;
 }
 
-.panel-fondo > .ayuda {
-  max-width: 760px;
-  margin: 17px 0 10px;
-}
-
-.panel-fondo .panel-titulo {
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(54, 91, 61, .1);
-}
-
-.icono-fondo {
-  color: #43827d;
-  background: #e7f2ef;
-}
-
 .modal {
   position: fixed;
   z-index: 50;
@@ -1517,10 +1386,6 @@ tbody tr:last-child td {
     padding-top: 7px;
   }
 
-  .estado {
-    margin-left: auto;
-  }
-
   .hero-jace {
     min-height: 370px;
     grid-template-columns: minmax(0, 1fr);
@@ -1580,16 +1445,6 @@ tbody tr:last-child td {
     height: 17px;
   }
 
-  .estado {
-    gap: 5px;
-    padding: 4px 6px;
-  }
-
-  .estado-etiqueta,
-  .estado .mono {
-    display: none;
-  }
-
   .hero-jace {
     min-height: 390px;
     grid-template-columns: minmax(0, 1fr);
@@ -1609,25 +1464,9 @@ tbody tr:last-child td {
     font-size: clamp(2.1rem, 10vw, 2.85rem);
   }
 
-  .hero-fases {
-    gap: 7px;
-    margin-top: 18px;
-    font-size: .73rem;
-  }
-
-  .hero-separador {
-    width: 10px;
-  }
-
   .hero-visual {
     width: auto;
     height: auto;
-  }
-
-  .visual-nota {
-    right: 12px;
-    bottom: 12px;
-    font-size: .67rem;
   }
 
   #vista-analisis {
@@ -1756,13 +1595,6 @@ tbody tr:last-child td {
     opacity: .75;
   }
 
-  .fondo-ornamento {
-    right: 17px;
-    width: 90px;
-    height: 90px;
-    opacity: .54;
-  }
-
   .panel-pagina {
     padding: 17px 14px;
   }
@@ -1826,8 +1658,7 @@ tbody tr:last-child td {
 :root[data-tema="oscuro"] .sub,
 :root[data-tema="oscuro"] .barra nav a,
 :root[data-tema="oscuro"] .hero-copy > p,
-:root[data-tema="oscuro"] .page-banner > p,
-:root[data-tema="oscuro"] .hero-fases {
+:root[data-tema="oscuro"] .page-banner > p {
   color: #b5c3b6;
 }
 
@@ -1841,13 +1672,6 @@ tbody tr:last-child td {
 
 :root[data-tema="oscuro"] .hero-jace::after {
   background: linear-gradient(90deg, rgba(20, 33, 26, .9) 0%, rgba(20, 33, 26, .82) 34%, rgba(20, 33, 26, .42) 57%, rgba(20, 33, 26, .04) 100%);
-}
-
-:root[data-tema="oscuro"] .visual-nota,
-:root[data-tema="oscuro"] .estado {
-  border-color: var(--panel-borde);
-  color: #c5d5c6;
-  background: rgba(17, 26, 46, .84);
 }
 
 @media (max-width: 600px) {
@@ -2252,6 +2076,333 @@ summary:focus-visible {
 :root[data-tema="oscuro"] .subpestana[aria-selected="true"],
 :root[data-tema="oscuro"] .diagnostico-sugerencia {
   color: #a7d0a6;
+}
+
+/* ========================================================================
+   Fase 4: pulido. Mismo concepto visual, más compacto.
+   ======================================================================== */
+
+/* Barra y banner compactos: el editor y los resultados se ven sin desplazar
+   la página a 1280×800. */
+.barra {
+  min-height: 64px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+main {
+  padding-top: 16px;
+}
+
+#vista-analisis {
+  gap: 16px;
+}
+
+.hero-jace {
+  height: clamp(112px, 10.5vw, 152px);
+  min-height: 0;
+  padding: 16px clamp(22px, 3vw, 40px);
+  border-radius: 24px;
+}
+
+.hero-copy {
+  max-width: min(60%, 660px);
+}
+
+.hero-copy h1 {
+  margin: 6px 0 4px;
+  font-size: clamp(1.3rem, 2.1vw, 1.85rem);
+  letter-spacing: -.035em;
+  line-height: 1.15;
+}
+
+.hero-copy > p {
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+.hero-etiqueta {
+  font-size: .7rem;
+}
+
+.page-banner {
+  min-height: 120px;
+  padding: 18px clamp(22px, 4vw, 44px);
+  border-radius: 24px;
+}
+
+.page-banner h1 {
+  margin: 6px 0 4px;
+  font-size: clamp(1.4rem, 2.4vw, 2rem);
+}
+
+.banner-ornamento {
+  width: clamp(110px, 14vw, 170px);
+}
+
+.resultados {
+  min-height: 600px;
+}
+
+/* Editor con números de línea ------------------------------------------- */
+.editor-codigo {
+  display: flex;
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--panel-borde);
+  border-radius: 10px;
+  background: rgba(248, 251, 246, .95);
+}
+
+.editor-codigo textarea {
+  min-height: 300px;
+  flex: 1 1 auto;
+  border: 0;
+  border-radius: 0;
+  overflow: auto;
+  white-space: pre;
+}
+
+.editor-codigo textarea:focus-visible {
+  outline-offset: -3px;
+}
+
+.margen {
+  flex: 0 0 auto;
+  min-width: 3.1em;
+  overflow: hidden;
+  padding: 17px 9px 17px 8px;
+  border-right: 1px solid var(--panel-borde);
+  color: var(--tenue);
+  background: rgba(232, 241, 228, .55);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: .94rem;
+  line-height: 1.8;
+  text-align: right;
+  user-select: none;
+}
+
+.margen > div {
+  padding-right: 3px;
+  border-radius: 4px;
+}
+
+.margen .marca-error {
+  color: #fff;
+  background: var(--error);
+  font-weight: 700;
+}
+
+.margen .marca-advertencia {
+  color: #4f3b0c;
+  background: #ecd9a6;
+  font-weight: 700;
+}
+
+.margen-relleno {
+  height: 40px;
+}
+
+/* Guía rápida --------------------------------------------------------------- */
+.guia {
+  border: 1px solid var(--panel-borde);
+  border-radius: 12px;
+  background: rgba(246, 249, 242, .6);
+  font-size: .82rem;
+}
+
+.guia summary {
+  padding: 8px 12px;
+  color: var(--tenue);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.guia-cuerpo {
+  padding: 0 12px 10px;
+}
+
+.guia-cuerpo pre {
+  overflow-x: auto;
+  margin: 0 0 8px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: var(--texto);
+  background: var(--panel-solido);
+  font-size: .78rem;
+  line-height: 1.6;
+}
+
+.guia-cuerpo ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--texto);
+}
+
+.guia-cuerpo code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+/* Menú de ejemplos ---------------------------------------------------------- */
+.submenu-ejemplos {
+  right: auto;
+  left: 0;
+  width: min(320px, 86vw);
+  max-height: min(60vh, 440px);
+  overflow: auto;
+}
+
+.submenu-ejemplos button {
+  display: grid;
+  gap: 1px;
+  padding: 7px 10px;
+  font-size: .84rem;
+}
+
+.submenu-ejemplos small {
+  color: var(--tenue);
+  font-size: .72rem;
+}
+
+.submenu-grupo {
+  margin: 8px 10px 3px;
+  color: var(--tenue);
+  font-size: .66rem;
+  font-weight: 760;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* Control de fondo (botón + popover) --------------------------------------- */
+.fondo-control {
+  position: relative;
+}
+
+.boton-fondo {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  color: var(--tenue);
+}
+
+.boton-fondo svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.boton-fondo .muestra {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(37, 58, 39, .25);
+  border-radius: 50%;
+}
+
+.popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(360px, 92vw);
+  padding: 14px;
+  border: 1px solid var(--panel-borde);
+  border-radius: 14px;
+  background: var(--panel-solido);
+  box-shadow: var(--sombra);
+}
+
+.popover-titulo {
+  margin: 0 0 10px;
+  color: var(--texto);
+  font-size: .86rem;
+  font-weight: 700;
+}
+
+.popover .presets {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 10px;
+}
+
+.popover .presets button {
+  min-height: 40px;
+  padding: 6px 9px;
+  gap: 8px;
+  border-radius: 10px;
+  font-size: .82rem;
+}
+
+.popover .presets .muestra {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(44, 66, 46, .2);
+  border-radius: 6px;
+}
+
+.popover .personalizado {
+  gap: 7px;
+  padding: 10px;
+}
+
+.popover .personalizado input[type="text"] {
+  width: 96px;
+}
+
+.popover .personalizado button {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+@media (max-width: 850px) {
+  .fondo-control {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .hero-jace {
+    height: auto;
+    padding: 16px 18px;
+  }
+
+  .hero-copy {
+    max-width: 100%;
+  }
+
+  .hero-copy > p {
+    display: none;
+  }
+
+  .margen {
+    padding-top: 13px;
+    font-size: .84rem;
+  }
+}
+
+:root[data-tema="oscuro"] .editor-codigo {
+  border-color: var(--panel-borde);
+  background: rgba(14, 23, 31, .94);
+}
+
+:root[data-tema="oscuro"] .margen {
+  border-color: var(--panel-borde);
+  background: #16231c;
+}
+
+:root[data-tema="oscuro"] .guia,
+:root[data-tema="oscuro"] .guia-cuerpo pre {
+  border-color: var(--panel-borde);
+  background: #17231d;
+}
+
+:root[data-tema="oscuro"] .boton-fondo {
+  color: #c5d5c6;
 }
 
 @media (prefers-reduced-motion: reduce) {
