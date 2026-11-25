@@ -2,14 +2,14 @@
   color-scheme: light;
   --fondo: #f3f6ed;
   --texto: #26372c;
-  --tenue: #5d6b5f;
+  --tenue: #4f5d52;
   --panel: rgba(255, 255, 255, .86);
   --panel-solido: #fffefa;
   --panel-borde: rgba(54, 91, 61, .14);
-  --acento: #4b8058;
+  --acento: #3f6f4b;
   --acento-texto: #fff;
   --error: #b94d48;
-  --ok: #438253;
+  --ok: #3a7349;
   --menta: #e8f1e4;
   --celeste: #e5f1ef;
   --sombra: 0 16px 42px rgba(48, 72, 50, .09);
@@ -458,7 +458,7 @@ main {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 14px;
-  color: #4b8058;
+  color: var(--acento);
   background: #edf5e9;
 }
 
@@ -499,7 +499,7 @@ main {
   padding: 5px 9px;
   border: 1px solid rgba(85, 128, 87, .15);
   border-radius: 999px;
-  color: #647d67;
+  color: #4f6852;
   background: #f3f8ef;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: .72rem;
@@ -540,7 +540,7 @@ main {
 .primario {
   border-color: #477950;
   color: var(--acento-texto);
-  background: linear-gradient(135deg, #568b60, #42764f);
+  background: linear-gradient(135deg, #4a7d55, #3a6b45);
   box-shadow: 0 5px 12px rgba(60, 111, 71, .18);
   font-weight: 670;
 }
@@ -619,7 +619,7 @@ main {
 }
 
 .tecla-ayuda b {
-  color: #8c998d;
+  color: var(--tenue);
   font-size: .72rem;
 }
 
@@ -897,7 +897,7 @@ th {
   position: sticky;
   z-index: 1;
   top: 0;
-  color: #5f7563;
+  color: #4b6150;
   background: #eef5eb;
   font-size: .75rem;
   font-weight: 730;
@@ -1127,7 +1127,7 @@ tbody tr:last-child td {
 }
 
 .resultado-simulacion {
-  color: #4b8058;
+  color: var(--acento);
   font-weight: 680;
 }
 
@@ -1758,6 +1758,7 @@ tbody tr:last-child td {
 }
 
 :root[data-tema="oscuro"] .pestana .num {
+  color: #c9d3ca;
   background: rgba(255, 255, 255, .1);
 }
 
@@ -1892,6 +1893,12 @@ td.cero {
 #contenidoIntermedio {
   display: grid;
   gap: 14px;
+}
+
+/* Elemento de la rejilla de arriba: sin min-width:0 no se encoge por debajo
+   del ancho de su <pre> y desborda el panel en pantallas estrechas. */
+#contenidoIntermedio > * {
+  min-width: 0;
 }
 
 .columnas-intermedio {
@@ -2155,6 +2162,8 @@ main {
   min-height: 200px;
   overflow: hidden;
   resize: vertical;
+  /* Deja sitio al tirador de resize para que no tape la barra horizontal. */
+  padding-bottom: 8px;
   border: 1px solid var(--panel-borde);
   border-radius: 10px;
   background: rgba(248, 251, 246, .95);

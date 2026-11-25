@@ -94,14 +94,14 @@ function aplicarTema(color) {
       }
     : {
       "--texto": "#26372c",
-      "--tenue": "#738175",
+      "--tenue": "#4f5d52",
       "--panel": "rgba(255, 255, 255, 0.86)",
       "--panel-solido": "#fffefa",
       "--panel-borde": "rgba(54, 91, 61, 0.14)",
-      "--acento": "#4b8058",
+      "--acento": "#3f6f4b",
         "--acento-texto": "#ffffff",
       "--error": "#b94d48",
-      "--ok": "#438253",
+      "--ok": "#3a7349",
       "--menta": "#e8f1e4",
       "--celeste": "#e5f1ef",
       "--sombra": "0 16px 42px rgba(48, 72, 50, 0.09)"
